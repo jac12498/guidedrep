@@ -1,8 +1,9 @@
 import Link from "next/link";
 import PricingCards from "@/components/marketing/PricingCards";
-import { FAQS, FEATURES, SITE, STEPS } from "@/lib/site";
+import { FAQS, FEATURES, SITE, STEPS, proPurchaseEnabled } from "@/lib/site";
 
 export default function LandingPage() {
+  const proOn = proPurchaseEnabled();
   return (
     <>
       {/* Hero */}
@@ -116,11 +117,11 @@ export default function LandingPage() {
               warm-up, the movements with timed rest, then stretches.
             </p>
             <Link
-              href="/app/go-pro?plan=monthly"
+              href={proOn ? "/app/go-pro?plan=monthly" : SITE.startHref}
               prefetch={false}
               className="mt-6 inline-block rounded-2xl bg-brand px-6 py-3 font-bold text-black transition hover:brightness-110"
             >
-              Start your free trial
+              {proOn ? "Start your free trial" : "Get started free"}
             </Link>
           </div>
           <ul className="space-y-3">

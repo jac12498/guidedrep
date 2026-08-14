@@ -3,7 +3,7 @@ import { supabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import { stripeConfigured } from "@/lib/stripe/server";
 import { getEntitlement } from "@/lib/stripe/entitlements";
-import { PRICE_PRO_ANNUAL, PRICE_PRO_MONTHLY, TRIAL_DAYS } from "@/lib/site";
+import { PRICE_PRO_ANNUAL, PRICE_PRO_MONTHLY, TRIAL_DAYS, proPurchaseEnabled } from "@/lib/site";
 import CoachSetting from "@/components/CoachSetting";
 import { openBillingPortal, startCheckout } from "./billing-actions";
 
@@ -127,7 +127,7 @@ export default async function AccountPage({
                   Manage billing
                 </button>
               </form>
-            ) : (
+            ) : proPurchaseEnabled() ? (
               <div className="mt-4 flex flex-col gap-2">
                 <form action={startCheckout.bind(null, "monthly")}>
                   <button
@@ -150,6 +150,10 @@ export default async function AccountPage({
                   Compare plans →
                 </Link>
               </div>
+            ) : (
+              <p className="mt-4 rounded-2xl bg-surface-2 p-3 text-center text-sm text-muted">
+                Pro is coming soon — you&apos;re on the free plan with everything unlocked for now.
+              </p>
             )
           ) : (
             <p className="mt-3 text-xs text-muted">Billing isn&apos;t configured on this deployment.</p>

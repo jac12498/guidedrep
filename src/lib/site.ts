@@ -101,6 +101,17 @@ export const PRICE_PRO_ANNUAL = 40; // ~$3.33/mo, billed yearly
 export const TRIAL_DAYS = 7;
 export const AI_FREE_LIMIT = 3; // free AI generations before Pro is required
 
+/**
+ * Whether Pro *purchase* CTAs are shown. Set `NEXT_PUBLIC_PRO_ENABLED=false` for a
+ * Free-first soft launch: all upgrade CTAs become "coming soon" and the checkout
+ * route is blocked, so visitors never hit a not-yet-live/test-mode payment. Unset
+ * (or any value other than "false") = Pro is live. Existing Pro subscribers keep
+ * their access and billing management regardless.
+ */
+export function proPurchaseEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_PRO_ENABLED !== "false";
+}
+
 export const TIERS: Tier[] = [
   {
     name: "Free",

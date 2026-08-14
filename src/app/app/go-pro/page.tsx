@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { stripeConfigured } from "@/lib/stripe/server";
 import { getEntitlement } from "@/lib/stripe/entitlements";
 import { createProCheckoutSession, getBaseUrl } from "@/lib/stripe/checkout";
+import { proPurchaseEnabled } from "@/lib/site";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,8 @@ export default async function GoProPage({
   const plan: "monthly" | "annual" = planParam === "annual" ? "annual" : "monthly";
   const self = `/app/go-pro?plan=${plan}`;
 
+  // Soft-launch: Pro purchase is hidden → don't let anyone reach checkout directly.
+  if (!proPurchaseEnabled()) redirect("/app");
   // No accounts configured → nothing to subscribe to.
   if (!supabaseConfigured) redirect("/app");
 

@@ -7,5 +7,8 @@ export async function POST(request: Request) {
     const supabase = await createClient();
     await supabase.auth.signOut();
   }
-  return NextResponse.redirect(new URL("/app/login", request.url), { status: 303 });
+  // Behind a proxy (Railway) request.url is the internal container address,
+  // so honor the configured public URL when set.
+  const base = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
+  return NextResponse.redirect(`${base}/app/login`, { status: 303 });
 }

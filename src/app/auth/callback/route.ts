@@ -8,10 +8,14 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") || "/app";
 
+  // Behind a proxy (Railway) `origin` is the internal container address
+  // (e.g. localhost:8080), so honor the configured public URL when set.
+  const base = process.env.NEXT_PUBLIC_APP_URL || origin;
+
   if (supabaseConfigured && code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(`${origin}${next}`);
+    if (!error) return NextResponse.redirect(`${base}${next}`);
   }
-  return NextResponse.redirect(`${origin}/app/login?error=auth`);
+  return NextResponse.redirect(`${base}/app/login?error=auth`);
 }

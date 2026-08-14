@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Guided Reps">
+  <defs>
+    <linearGradient id="gr-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#111a2b"/>
+      <stop offset="1" stop-color="#0b0f17"/>
+    </linearGradient>
+    <linearGradient id="gr-ring" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#67e8f9"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <radialGradient id="gr-glow" cx="0.5" cy="0.4" r="0.55">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#gr-bg)"/>
+  <rect width="512" height="512" fill="url(#gr-glow)"/>
+
+  <!-- Guiding progress ring, open at the bottom -->
+  <path d="M159.6 370.9 A150 150 0 1 1 352.4 370.9"
+        fill="none" stroke="url(#gr-ring)" stroke-width="40" stroke-linecap="round"/>
+
+  <!-- Upward arrow: progress -->
+  <path d="M256 332 V190 M199 247 L256 190 L313 247"
+        fill="none" stroke="#f0f9ff" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

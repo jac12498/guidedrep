@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+:root {
+  /* Dark-only app — tell the browser so native controls (select dropdowns,
+     scrollbars, pickers) render dark instead of white-on-white. */
+  color-scheme: dark;
+  --background: #0b0f17;
+  --surface: #131a26;
+  --surface-2: #1b2536;
+  --foreground: #eef2f8;
+  --muted: #9aa7bd;
+  --border: #263149;
+  --brand: #22d3ee;
+  --brand-strong: #06b6d4;
+
+  /* phase accent colors */
+  --prep: #f59e0b;
+  --work: #22c55e;
+  --rest: #38bdf8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-brand: var(--brand);
+  --color-prep: var(--prep);
+  --color-work: var(--work);
+  --color-rest: var(--rest);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* respect iOS safe areas for the fixed bottom nav */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Native <select> dropdown options — force dark so numbers aren't white-on-white
+   (the browser popup ignores color-scheme when the select has a transparent bg). */
+select {
+  color: var(--foreground);
+}
+option {
+  background-color: var(--surface);
+  color: var(--foreground);
+}
+
+/* Prevent pull-to-refresh / rubber-banding from disrupting an active workout. */
+.no-overscroll {
+  overscroll-behavior: none;
+}
+
+/* Tabular figures so the big timer doesn't jitter. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}

@@ -106,19 +106,21 @@ export default async function AccountPage({
                 </span>
               </div>
               <p className="mt-1 text-sm text-muted">
-                {ent.isPro
-                  ? ent.status === "trialing"
-                    ? `Free trial — first charge ${fmtDate(ent.currentPeriodEnd)}.`
-                    : ent.currentPeriodEnd
-                      ? `Renews ${fmtDate(ent.currentPeriodEnd)}.`
-                      : "Active subscription."
-                  : "Free plan — personalized routines included."}
+                {ent.isAdmin && !ent.hasCustomer
+                  ? "Complimentary Pro access (admin)."
+                  : ent.isPro
+                    ? ent.status === "trialing"
+                      ? `Free trial — first charge ${fmtDate(ent.currentPeriodEnd)}.`
+                      : ent.currentPeriodEnd
+                        ? `Renews ${fmtDate(ent.currentPeriodEnd)}.`
+                        : "Active subscription."
+                    : "Free plan — personalized routines included."}
               </p>
             </div>
           </div>
 
           {stripeConfigured ? (
-            ent.isPro || ent.hasCustomer ? (
+            ent.hasCustomer ? (
               <form action={openBillingPortal} className="mt-4">
                 <button
                   type="submit"
@@ -127,6 +129,10 @@ export default async function AccountPage({
                   Manage billing
                 </button>
               </form>
+            ) : ent.isAdmin ? (
+              <p className="mt-4 rounded-2xl bg-brand/10 p-3 text-center text-sm text-brand">
+                🛠️ Pro is unlocked for your admin account — no billing needed.
+              </p>
             ) : proPurchaseEnabled() ? (
               <div className="mt-4 flex flex-col gap-2">
                 <form action={startCheckout.bind(null, "monthly")}>

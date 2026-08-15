@@ -9,6 +9,7 @@ export interface Entitlement {
   aiUsed: number;
   aiRemaining: number; // Infinity when Pro
   hasCustomer: boolean;
+  isAdmin: boolean; // Pro is granted complimentarily to admins (no Stripe customer).
 }
 
 // A subscription in these states grants Pro access (trialing = inside the free trial).
@@ -20,12 +21,14 @@ export async function getEntitlement(
 ): Promise<Entitlement> {
   const { data } = await supabase
     .from("profiles")
-    .select("subscription_status, current_period_end, ai_generations_used, stripe_customer_id")
+    .select("subscription_status, current_period_end, ai_generations_used, stripe_customer_id, is_admin")
     .eq("id", userId)
     .maybeSingle();
 
   const status = (data?.subscription_status as string | null) ?? null;
-  const isPro = status != null && PRO_STATUSES.has(status);
+  const isAdmin = (data?.is_admin as boolean | null) ?? false;
+  // Admins get complimentary Pro access regardless of subscription state.
+  const isPro = isAdmin || (status != null && PRO_STATUSES.has(status));
   const aiUsed = (data?.ai_generations_used as number | null) ?? 0;
 
   return {
@@ -35,5 +38,6 @@ export async function getEntitlement(
     aiUsed,
     aiRemaining: isPro ? Infinity : Math.max(0, AI_FREE_LIMIT - aiUsed),
     hasCustomer: Boolean(data?.stripe_customer_id),
+    isAdmin,
   };
 }

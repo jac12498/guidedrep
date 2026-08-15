@@ -178,9 +178,12 @@ export default function OnboardingForm({
 
         <div>
           <span className="mb-1 block text-sm font-medium">A quick health check</span>
-          <p className="mb-2 text-xs text-muted">
-            Have you been diagnosed with osteoporosis or low bone density, or had a fragility
+          <p className="mb-1 text-xs text-muted">
+            Have you been diagnosed with <strong>osteoporosis</strong>, or had a fragility
             (low-trauma) fracture?
+          </p>
+          <p className="mb-2 text-[11px] text-muted/80">
+            Osteopenia / low bone density is fine — this is about osteoporosis specifically.
           </p>
           <div className="flex flex-wrap gap-2">
             {(

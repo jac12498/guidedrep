@@ -161,7 +161,7 @@ export default function OnboardingForm({
             onChange={(e) => setName(e.target.value)}
             required
             autoFocus
-            placeholder="e.g. Jeff Collins"
+            placeholder="e.g. Alex Rivera"
             className="w-full rounded-xl border border-border bg-surface px-4 py-3 outline-none focus:border-brand"
           />
         </div>

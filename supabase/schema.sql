@@ -137,6 +137,21 @@ create policy "routine_feedback: own" on public.routine_feedback
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create index if not exists routine_feedback_user on public.routine_feedback (user_id, created_at desc);
 
+-- ---- site_visits: anonymous first-party visit tracking (top of funnel) ----
+-- No PII: a random per-browser visitor id + path. Inserted server-side via the
+-- service role only (no anon/public policies), so it's never client-writable.
+create table if not exists public.site_visits (
+  id          uuid primary key default gen_random_uuid(),
+  visitor_id  text not null,
+  path        text,
+  referrer    text,
+  created_at  timestamptz not null default now()
+);
+alter table public.site_visits enable row level security;
+-- (no policies: only the service-role admin client reads/writes this table)
+create index if not exists site_visits_created on public.site_visits (created_at desc);
+create index if not exists site_visits_visitor on public.site_visits (visitor_id);
+
 -- ---- auto-create a profile row whenever a new auth user signs up ----
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$

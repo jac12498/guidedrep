@@ -40,16 +40,18 @@ export default async function AdminPage() {
 
   // Read across all users (service role bypasses RLS). Fine for a small user base;
   // for scale, move the aggregation into a SQL view / RPC.
-  const [{ data: profiles }, { data: logs }, { data: programs }] = await Promise.all([
-    admin
-      .from("profiles")
-      .select(
-        "id, email, display_name, is_admin, created_at, disclaimer_accepted_at, subscription_status, stripe_customer_id",
-      )
-      .order("created_at", { ascending: true }),
-    admin.from("session_logs").select("user_id, performed_at"),
-    admin.from("program_state").select("user_id, completed, started_at"),
-  ]);
+  const [{ data: profiles }, { data: logs }, { data: programs }, { data: visits }] =
+    await Promise.all([
+      admin
+        .from("profiles")
+        .select(
+          "id, email, display_name, is_admin, created_at, disclaimer_accepted_at, subscription_status, stripe_customer_id",
+        )
+        .order("created_at", { ascending: true }),
+      admin.from("session_logs").select("user_id, performed_at"),
+      admin.from("program_state").select("user_id, completed, started_at"),
+      admin.from("site_visits").select("visitor_id, created_at"),
+    ]);
 
   const logStats = new Map<string, { count: number; last: number }>();
   for (const l of logs ?? []) {
@@ -80,6 +82,17 @@ export default async function AdminPage() {
 
   const weekAgo = Date.now() - 7 * 86400000;
 
+  // Unique visitors (distinct anonymous browser ids) — top of funnel.
+  const visitorSet = new Set<string>();
+  const visitorSet7d = new Set<string>();
+  for (const v of visits ?? []) {
+    const id = v.visitor_id as string;
+    visitorSet.add(id);
+    if (new Date(v.created_at as string).getTime() >= weekAgo) visitorSet7d.add(id);
+  }
+  const uniqueVisitors = visitorSet.size;
+  const visitors7d = visitorSet7d.size;
+
   // The funnel measures real prospects, so internal/comp admin accounts are excluded.
   const customers = users.filter((u) => !u.isAdmin);
   const isPro = (s: string | null) => !!s && PRO_STATES.has(s);
@@ -91,13 +104,14 @@ export default async function AdminPage() {
   const subscribers = customers.filter((u) => isPro(u.subStatus)).length;
 
   const stages = [
+    { label: "Visited site", count: uniqueVisitors, hint: "Unique visitors" },
     { label: "Signed up", count: signedUp, hint: "Created an account" },
     { label: "Onboarded", count: onboarded, hint: "Finished setup + waiver" },
     { label: "First workout", count: activated, hint: "Completed ≥ 1 session" },
     { label: "Building a habit", count: habit, hint: "Completed ≥ 3 sessions" },
     { label: "Pro subscriber", count: subscribers, hint: "Trialing or paying" },
   ];
-  const top = Math.max(signedUp, 1);
+  const top = Math.max(uniqueVisitors, signedUp, 1);
 
   const activeThisWeek = customers.filter((u) => u.lastActive && u.lastActive >= weekAgo).length;
   const paying = customers.filter((u) => u.subStatus === "active").length;
@@ -115,7 +129,8 @@ export default async function AdminPage() {
       </div>
 
       {/* headline KPIs */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <Kpi value={uniqueVisitors} label="visitors" sub={visitors7d ? `${visitors7d} / 7d` : undefined} />
         <Kpi value={signedUp} label="customers" />
         <Kpi value={activeThisWeek} label="active / 7d" />
         <Kpi value={subscribers} label="subscribers" accent />
@@ -129,9 +144,9 @@ export default async function AdminPage() {
           <span className="text-xs text-muted">signup → habit → revenue</span>
         </div>
 
-        {signedUp === 0 ? (
+        {uniqueVisitors === 0 && signedUp === 0 ? (
           <p className="py-6 text-center text-sm text-muted">
-            No customers yet — the funnel fills in as people sign up. 🌱
+            No traffic yet — the funnel fills in as people visit and sign up. 🌱
           </p>
         ) : (
           <div className="space-y-2.5">
@@ -162,9 +177,16 @@ export default async function AdminPage() {
                 </div>
               );
             })}
-            <p className="pt-1 text-xs text-muted">
-              Overall signup → subscriber: <span className="tnum font-semibold text-foreground">{pct(subscribers, signedUp)}%</span>
-            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-muted">
+              <span>
+                Visitor → signup:{" "}
+                <span className="tnum font-semibold text-foreground">{pct(signedUp, uniqueVisitors)}%</span>
+              </span>
+              <span>
+                Signup → subscriber:{" "}
+                <span className="tnum font-semibold text-foreground">{pct(subscribers, signedUp)}%</span>
+              </span>
+            </div>
           </div>
         )}
       </section>
@@ -226,13 +248,24 @@ export default async function AdminPage() {
   );
 }
 
-function Kpi({ value, label, accent }: { value: number; label: string; accent?: boolean }) {
+function Kpi({
+  value,
+  label,
+  accent,
+  sub,
+}: {
+  value: number;
+  label: string;
+  accent?: boolean;
+  sub?: string;
+}) {
   return (
     <div className="rounded-xl border border-border bg-surface p-3 text-center">
       <div className={`text-2xl font-bold tnum ${accent ? "text-emerald-400" : "text-brand"}`}>
         {value}
       </div>
       <div className="text-xs text-muted">{label}</div>
+      {sub ? <div className="text-[10px] text-muted/70 tnum">{sub}</div> : null}
     </div>
   );
 }

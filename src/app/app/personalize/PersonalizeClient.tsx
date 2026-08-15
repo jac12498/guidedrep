@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import FitnessQuestionnaire from "@/components/FitnessQuestionnaire";
+import GenerationLoader from "@/components/GenerationLoader";
 import { updateFitnessProfile } from "./actions";
 import { supabaseConfigured } from "@/lib/supabase/config";
 import { aiToRoutine, type AIRoutine } from "@/lib/aiRoutine";
@@ -49,6 +50,16 @@ export default function PersonalizeClient({ initial }: { initial?: Partial<Fitne
     router.push("/app/routines");
   }
 
+  if (working) {
+    return (
+      <GenerationLoader
+        variant="routine"
+        title="Building your routines…"
+        subtitle="Tailoring a fresh set to your answers. This takes a few seconds."
+      />
+    );
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-bold">Refresh your routines</h1>
@@ -62,9 +73,6 @@ export default function PersonalizeClient({ initial }: { initial?: Partial<Fitne
         submitting={working}
         onSubmit={submit}
       />
-      {working ? (
-        <p className="mt-4 text-center text-sm text-muted">Building your routines… a few seconds.</p>
-      ) : null}
     </div>
   );
 }

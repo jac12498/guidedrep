@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { PROGRAM, activeDays, phaseFor, type ProgramDay } from "@/lib/program";
+import { buildProgram, activeDays, phaseFor, type ProgramDay } from "@/lib/program";
+import { scheduleOf } from "@/lib/fitness";
 import { getActiveProgramBlock, markProgramBlockDaysComplete } from "@/lib/store";
 import type { ProgramBlock } from "@/lib/programPlan";
 import MidblockCheckinCard from "@/components/MidblockCheckin";
@@ -20,7 +21,7 @@ export default function ProgramClient() {
       setBlock(b);
       if (b) {
         const done = new Set(b.completedDays);
-        const next = activeDays().find((d) => !done.has(d.id));
+        const next = activeDays(scheduleOf(b.sourceAnswers ?? null)).find((d) => !done.has(d.id));
         setOpenWeek(next?.week ?? 1);
       }
     });
@@ -30,11 +31,15 @@ export default function ProgramClient() {
     load();
   }, [load]);
 
+  // The calendar comes from the schedule this block was built with.
+  const schedule = useMemo(() => scheduleOf(block?.sourceAnswers ?? null), [block]);
+  const weeks = useMemo(() => buildProgram(schedule), [schedule]);
+  const days = useMemo(() => activeDays(schedule), [schedule]);
   const completedSet = useMemo(() => new Set(block?.completedDays ?? []), [block]);
   const nextDay = useMemo<ProgramDay | undefined>(() => {
     if (!block) return undefined;
-    return activeDays().find((d) => !completedSet.has(d.id));
-  }, [block, completedSet]);
+    return days.find((d) => !completedSet.has(d.id));
+  }, [block, days, completedSet]);
 
   // Mid-block check-in: once Foundation (weeks 1-3) is done, before Build, and
   // only if they've actually started and we haven't checked in yet.
@@ -69,7 +74,7 @@ export default function ProgramClient() {
     );
   }
 
-  const totalActive = activeDays().length;
+  const totalActive = days.length;
   const doneCount = block.completedDays.length;
   const pct = Math.round((doneCount / totalActive) * 100);
 
@@ -85,7 +90,8 @@ export default function ProgramClient() {
         <p className="mb-4 text-sm text-muted">{block.plan.summary}</p>
       ) : (
         <p className="mb-4 text-sm text-muted">
-          Progressively harder, not longer. 3 strength days + 3 walks each week.
+          Progressively harder, not longer. {schedule.filter((a) => a === "strength").length} strength
+          {" "}days + {schedule.filter((a) => a === "aerobic").length} aerobic each week.
         </p>
       )}
 
@@ -108,7 +114,7 @@ export default function ProgramClient() {
           <button
             onClick={async () => {
               await markProgramBlockDaysComplete(
-                activeDays().filter((d) => d.week <= 3).map((d) => d.id),
+                days.filter((d) => d.week <= 3).map((d) => d.id),
               );
               load();
             }}
@@ -118,7 +124,7 @@ export default function ProgramClient() {
           </button>
           <button
             onClick={async () => {
-              await markProgramBlockDaysComplete(activeDays().map((d) => d.id));
+              await markProgramBlockDaysComplete(days.map((d) => d.id));
               load();
             }}
             className="flex-1 rounded-xl border border-dashed border-border py-2 text-xs text-muted hover:text-foreground"
@@ -164,7 +170,7 @@ export default function ProgramClient() {
 
       {/* weeks */}
       <div className="space-y-2">
-        {PROGRAM.map((w) => {
+        {weeks.map((w) => {
           const open = openWeek === w.week;
           const weekDone = w.days
             .filter((d) => d.kind !== "rest")

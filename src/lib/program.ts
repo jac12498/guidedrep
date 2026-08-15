@@ -11,6 +11,7 @@
 // the existing Player can run.
 
 import type { Exercise, ExerciseType, Routine } from "./types";
+import { DEFAULT_SCHEDULE, WEEKDAYS, strengthDayCodes, type WeekdayActivity } from "./fitness";
 
 // ---- Prescription authoring helpers ----
 
@@ -451,6 +452,8 @@ export interface ProgramDay {
   label: string; // "Monday · Strength"
   kind: DayKind;
   summary: string;
+  /** 0-based position among the week's strength days (for template variation). */
+  strengthIndex?: number;
 }
 
 export interface ProgramWeek {
@@ -476,52 +479,70 @@ export function phaseKey(week: number): PhaseKey {
   return "strengthen";
 }
 
-const DAY_TEMPLATE: Array<{ code: string; dow: number; label: string; kind: DayKind }> = [
-  { code: "mon", dow: 1, label: "Monday · Strength", kind: "strength" },
-  { code: "tue", dow: 2, label: "Tuesday · Walk", kind: "walk" },
-  { code: "wed", dow: 3, label: "Wednesday · Strength", kind: "strength" },
-  { code: "thu", dow: 4, label: "Thursday · Walk", kind: "walk" },
-  { code: "fri", dow: 5, label: "Friday · Strength", kind: "strength" },
-  { code: "sat", dow: 6, label: "Saturday · Walk", kind: "walk" },
-  { code: "sun", dow: 7, label: "Sunday · Rest", kind: "rest" },
-];
-
-function dayCount(week: number, code: string): number {
-  // movement count (with band row, for the summary label)
-  return strengthRx(week, code).length;
+function kindFor(activity: WeekdayActivity): DayKind {
+  return activity === "strength" ? "strength" : activity === "aerobic" ? "walk" : "rest";
 }
 
-export const PROGRAM: ProgramWeek[] = Array.from({ length: 12 }, (_, i) => {
-  const week = i + 1;
-  const ph = phaseFor(week);
-  return {
-    week,
-    phase: ph.name,
-    objective: ph.objective,
-    days: DAY_TEMPLATE.map((d) => ({
-      id: `w${week}-${d.code}`,
+/**
+ * Build the 12-week calendar from a weekly schedule (Mon..Sun activities).
+ * Each strength day carries `strengthIndex` — its position among the week's
+ * strength days — so both the free template and the personalized plan can pick
+ * the matching session. Defaults to the standard M/W/F rhythm.
+ */
+export function buildProgram(schedule: WeekdayActivity[] = DEFAULT_SCHEDULE): ProgramWeek[] {
+  const strengthCodes = strengthDayCodes(schedule);
+  return Array.from({ length: 12 }, (_, i) => {
+    const week = i + 1;
+    const ph = phaseFor(week);
+    return {
       week,
-      code: d.code,
-      dow: d.dow,
-      label: d.label,
-      kind: d.kind,
-      summary:
-        d.kind === "strength"
-          ? `Warm-up · ${dayCount(week, d.code)} moves · stretch`
-          : d.kind === "walk"
-            ? walkSummary(week)
-            : "Rest day",
-    })),
-  };
-});
-
-/** All startable days (strength + walk), in program order. */
-export function activeDays(): ProgramDay[] {
-  return PROGRAM.flatMap((w) => w.days).filter((d) => d.kind !== "rest");
+      phase: ph.name,
+      objective: ph.objective,
+      days: WEEKDAYS.map((w, idx) => {
+        const kind = kindFor(schedule[idx] ?? "rest");
+        const kindLabel = kind === "strength" ? "Strength" : kind === "walk" ? "Aerobic" : "Rest";
+        return {
+          id: `w${week}-${w.code}`,
+          week,
+          code: w.code,
+          dow: w.dow,
+          label: `${w.label} · ${kindLabel}`,
+          kind,
+          strengthIndex: kind === "strength" ? strengthCodes.indexOf(w.code) : undefined,
+          summary:
+            kind === "strength"
+              ? "Warm-up · strength · stretch"
+              : kind === "walk"
+                ? walkSummary(week)
+                : "Rest day",
+        };
+      }),
+    };
+  });
 }
 
-export function getDay(id: string): ProgramDay | undefined {
-  return PROGRAM.flatMap((w) => w.days).find((d) => d.id === id);
+/** The default-schedule calendar (kept for back-compat with default consumers). */
+export const PROGRAM: ProgramWeek[] = buildProgram();
+
+/** All startable days (strength + walk), in program order, for a schedule. */
+export function activeDays(schedule: WeekdayActivity[] = DEFAULT_SCHEDULE): ProgramDay[] {
+  return buildProgram(schedule)
+    .flatMap((w) => w.days)
+    .filter((d) => d.kind !== "rest");
+}
+
+export function getDay(
+  id: string,
+  schedule: WeekdayActivity[] = DEFAULT_SCHEDULE,
+): ProgramDay | undefined {
+  return buildProgram(schedule)
+    .flatMap((w) => w.days)
+    .find((d) => d.id === id);
+}
+
+/** Map a strength day's position to one of the 3 authored template variants. */
+function templateCode(strengthIndex: number | undefined): string {
+  return ["mon", "wed", "fri"][(strengthIndex ?? 0) % 3];
 }
 
 /** Turn a program day into a concrete Routine the Player can run. */
@@ -539,7 +560,7 @@ export function buildRoutine(day: ProgramDay, hasBand: boolean): Routine | null 
     ];
     focus = "Walking";
   } else {
-    const strength = strengthRx(day.week, day.code).filter(
+    const strength = strengthRx(day.week, templateCode(day.strengthIndex)).filter(
       (rx) => hasBand || !/resistance-band row/i.test(rx.name),
     );
     exercises = [

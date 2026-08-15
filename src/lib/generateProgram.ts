@@ -1,16 +1,61 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { GenerationError, PROGRAM_MODEL } from "./generateRoutines";
-import { describeProfile, type FitnessProfile } from "./fitness";
+import {
+  describeProfile,
+  scheduleOf,
+  strengthDayCodes,
+  WEEKDAYS,
+  type FitnessProfile,
+} from "./fitness";
 import { movementLibraryText } from "./movements";
 import type { PhaseSessions, ProgramPlan } from "./programPlan";
 import type { PhaseKey } from "./program";
 
-// Generates the personalized 12-week program. Each phase is THREE distinct
-// strength sessions (Mon lower-body, Wed upper+core, Fri full-body/hardest) so
+// Generates the personalized 12-week program. Each phase produces one distinct
+// strength session PER strength day the user scheduled (keyed by weekday), so
 // the week varies instead of repeating one workout. Phases are generated in
 // parallel (one AI call each) to keep latency reasonable; warm-up, stretches and
 // walks are added by the assembler (programPlan.ts), not generated here.
+
+const LABEL_BY_CODE: Record<string, string> = Object.fromEntries(
+  WEEKDAYS.map((w) => [w.code, w.label]),
+);
+
+// Per-day emphasis. The LAST strength day is always the hardest full-body day;
+// the earlier days rotate through complementary emphases so the week covers the
+// whole body. For 3 days this reproduces the original Lower / Upper / Full split.
+const EMPHASIS_ROTATION = [
+  "LOWER-BODY & posterior chain — a squat pattern, a hip-hinge/glute, a single-leg/lunge, calves, and one core move.",
+  "UPPER-BODY & core — a push, a horizontal pull/row (loaded ONLY if they have a band or dumbbells; otherwise bodyweight scapular work like Prone Y-T-W raise or Floor angels), two core/anti-rotation moves, and a balance move.",
+  "POSTERIOR-CHAIN & CORE — a hip-hinge/deadlift pattern, a glute-bridge variation, a row or scapular move, two core/anti-rotation moves, and a balance hold.",
+  "SINGLE-LEG & BALANCE — a lunge/split-squat, a single-leg hip-hinge, a step-up or calf move, a core move, and two balance progressions.",
+];
+
+function emphasisFor(i: number, n: number): string {
+  if (i === n - 1) {
+    return "FULL-BODY and the hardest of the week — a squat, a push, a single-leg, a hip-hinge, a core, and a balance move.";
+  }
+  return EMPHASIS_ROTATION[i % EMPHASIS_ROTATION.length];
+}
+
+function emphasisLines(codes: string[]): string {
+  return codes
+    .map((c, i) => `- ${c} (${LABEL_BY_CODE[c] ?? c}): ${emphasisFor(i, codes.length)}`)
+    .join("\n");
+}
+
+/** JSON schema for one phase: an array property per scheduled strength weekday. */
+function phaseSchemaFor(codes: string[]) {
+  const properties: Record<string, unknown> = {};
+  for (const c of codes) properties[c] = { type: "array", items: PLAN_RX };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties,
+    required: codes,
+  } as const;
+}
 
 const PLAN_RX = {
   type: "object",
@@ -28,18 +73,6 @@ const PLAN_RX = {
     setup: { type: "string", description: "Short spoken 'get into position' line." },
   },
   required: ["name", "type", "sets", "reps", "holdSec", "perSide", "restSec", "secPerRep", "cue", "setup"],
-} as const;
-
-// One phase = three sessions.
-const PHASE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    mon: { type: "array", items: PLAN_RX },
-    wed: { type: "array", items: PLAN_RX },
-    fri: { type: "array", items: PLAN_RX },
-  },
-  required: ["mon", "wed", "fri"],
 } as const;
 
 interface PhaseSpec {
@@ -78,13 +111,15 @@ function progressionNote(blockNumber: number): string {
     : "";
 }
 
-function composeSummary(profile: FitnessProfile): string {
+function composeSummary(profile: FitnessProfile, sessionCount: number): string {
   const gear =
     profile.equipment?.length &&
     !(profile.equipment.length === 1 && profile.equipment[0] === "Bodyweight only")
       ? " and your equipment"
       : "";
-  return `Calibrated to what you can do today${gear} — three different sessions a week, progressing across four phases over 12 weeks.`;
+  const sessions =
+    sessionCount === 1 ? "one session" : `${sessionCount} different sessions`;
+  return `Calibrated to what you can do today${gear} — ${sessions} a week, progressing across four phases over 12 weeks.`;
 }
 
 async function generatePhase(
@@ -93,16 +128,16 @@ async function generatePhase(
   library: string,
   spec: PhaseSpec,
   blockNumber: number,
+  codes: string[],
   adjust = "",
 ): Promise<PhaseSessions> {
-  const prompt = `Design THREE distinct strength sessions for one phase of a personalized 12-week program — a Monday, a Wednesday, and a Friday session. They run in the same week, so make them DIFFERENT emphases (never the same workout three times), while together covering the whole body across the week.
+  const dayWord = codes.length === 1 ? "session" : "distinct sessions";
+  const prompt = `Design ${codes.length} ${dayWord} for one phase of a personalized 12-week program — one for each of the person's scheduled strength days: ${codes.join(", ")}. They run in the same week, so make them DIFFERENT emphases (never the same workout twice), while together covering the whole body across the week.
 
 Phase: ${spec.label} — ${spec.difficulty}
 
-Emphasis per day:
-- mon: LOWER-BODY & posterior chain — a squat pattern, a hip-hinge/glute, a single-leg/lunge, calves, and one core move.
-- wed: UPPER-BODY & core — a push, a horizontal pull/row (loaded ONLY if they have a band or dumbbells; otherwise bodyweight scapular work like Prone Y-T-W raise or Floor angels), two core/anti-rotation moves, and a balance move.
-- fri: FULL-BODY and the hardest of the week — a squat, a push, a single-leg, a hip-hinge, a core, and a balance move.
+Emphasis per day (the JSON key is the weekday code):
+${emphasisLines(codes)}
 
 Each session is 5-7 movements at effort 6-7 out of 10 ("could do 3-4 more good reps"). Progress difficulty by choosing harder movement TIERS and slower tempo, not ever-higher rep counts.
 
@@ -115,15 +150,15 @@ CALIBRATE to their capability answers — this is the most important thing:
 - If they CANNOT hold a 20-second plank, use Countertop or Knee planks and shorter holds.
 Only use equipment they have. Do NOT load any body area they avoid — choose a safe alternative. Respect their desired starting intensity.${adjust}${progressionNote(blockNumber)}
 
-For every movement provide: name, type (strength/cardio/mobility), sets (1-3), reps (per set; 0 for a timed hold), holdSec (0 for rep moves), perSide, restSec, secPerRep (tempo), a short spoken cue, and a short spoken setup line ("how to get into position").
+Return a JSON object with exactly these keys: ${codes.join(", ")} — each an array of movements. For every movement provide: name, type (strength/cardio/mobility), sets (1-3), reps (per set; 0 for a timed hold), holdSec (0 for rep moves), perSide, restSec, secPerRep (tempo), a short spoken cue, and a short spoken setup line ("how to get into position").
 
 Person:
 ${describeProfile(profile)}`;
 
   const response = await client.messages.create({
     model: PROGRAM_MODEL,
-    max_tokens: 12000,
-    output_config: { effort: "low", format: { type: "json_schema", schema: PHASE_SCHEMA } },
+    max_tokens: 16000,
+    output_config: { effort: "low", format: { type: "json_schema", schema: phaseSchemaFor(codes) } },
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -135,7 +170,7 @@ ${describeProfile(profile)}`;
     throw new GenerationError("No program was generated. Try again.", 502);
   }
   const sessions = JSON.parse(textBlock.text) as PhaseSessions;
-  if (!sessions.mon?.length || !sessions.wed?.length || !sessions.fri?.length) {
+  if (codes.some((c) => !sessions[c]?.length)) {
     throw new GenerationError("The generated program was incomplete. Try again.", 502);
   }
   return sessions;
@@ -158,15 +193,19 @@ export async function generateProgram(
     throw new GenerationError("AI isn't configured. Add ANTHROPIC_API_KEY to build programs.", 400);
   }
   const blockNumber = opts.blockNumber ?? 1;
+  const codes = strengthDayCodes(scheduleOf(profile));
+  if (!codes.length) {
+    throw new GenerationError("Pick at least one strength day to build a program.", 400);
+  }
   const library = movementLibraryText(profile.equipment ?? []);
   const client = new Anthropic({ apiKey });
 
   try {
     const [foundation, build, develop, strengthen] = await Promise.all(
-      PHASE_SPECS.map((spec) => generatePhase(client, profile, library, spec, blockNumber)),
+      PHASE_SPECS.map((spec) => generatePhase(client, profile, library, spec, blockNumber, codes)),
     );
     return {
-      summary: composeSummary(profile),
+      summary: composeSummary(profile, codes.length),
       avoid: profile.avoid,
       phases: { foundation, build, develop, strengthen },
     };
@@ -190,6 +229,10 @@ export async function adaptProgram(
   if (!apiKey) {
     throw new GenerationError("AI isn't configured. Add ANTHROPIC_API_KEY to build programs.", 400);
   }
+  const codes = strengthDayCodes(scheduleOf(profile));
+  if (!codes.length) {
+    throw new GenerationError("Pick at least one strength day to build a program.", 400);
+  }
   const library = movementLibraryText(profile.equipment ?? []);
   const client = new Anthropic({ apiKey });
   const adjust =
@@ -201,7 +244,7 @@ export async function adaptProgram(
 
   try {
     const [build, develop, strengthen] = await Promise.all(
-      specs.map((spec) => generatePhase(client, profile, library, spec, 1, adjust + noteText)),
+      specs.map((spec) => generatePhase(client, profile, library, spec, 1, codes, adjust + noteText)),
     );
     return {
       ...current,

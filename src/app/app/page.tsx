@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Routine } from "@/lib/types";
 import { currentStreak, getActiveProgramBlock, getRoutines, getSessions } from "@/lib/store";
 import { activeDays, type ProgramDay } from "@/lib/program";
+import { scheduleOf } from "@/lib/fitness";
 import RoutineCard from "@/components/RoutineCard";
 
 const KIND_ICON: Record<string, string> = { strength: "💪", walk: "🚶", rest: "🌙" };
@@ -44,7 +45,8 @@ export default function Home() {
         setHasBlock(true);
         setProgramStarted(block.startedAt != null);
         const done = new Set(block.completedDays);
-        const nd = activeDays().find((d) => !done.has(d.id)) ?? null;
+        const days = activeDays(scheduleOf(block.sourceAnswers ?? null));
+        const nd = days.find((d) => !done.has(d.id)) ?? null;
         setNextDay(nd);
         setCheckinDue(block.startedAt != null && !block.midblock && !!nd && nd.week >= 4);
       } else {

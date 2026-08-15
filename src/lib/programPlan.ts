@@ -32,17 +32,16 @@ export interface PlanRx {
   setup?: string;
 }
 
-/** Three distinct strength sessions for a phase (Phase 4 M/W/F variation). */
-export interface PhaseSessions {
-  mon: PlanRx[];
-  wed: PlanRx[];
-  fri: PlanRx[];
-}
+/**
+ * A phase's strength sessions, keyed by weekday code (mon..sun) — one entry per
+ * strength day the user scheduled. The default M/W/F plan uses {mon,wed,fri}.
+ */
+export type PhaseSessions = Record<string, PlanRx[]>;
 
 /**
- * A phase's prescription. New plans store three sessions (mon/wed/fri); older
- * plans stored a single flat list that repeated on every strength day — both are
- * accepted so existing program blocks keep working.
+ * A phase's prescription. New plans store a session per scheduled strength day
+ * (keyed by weekday); older plans stored a single flat list that repeated on
+ * every strength day — both are accepted so existing program blocks keep working.
  */
 export type PhaseData = PlanRx[] | PhaseSessions;
 
@@ -63,7 +62,9 @@ export interface ProgramPlan {
 export function sessionForDay(phase: PhaseData | undefined, code: string): PlanRx[] {
   if (!phase) return [];
   if (Array.isArray(phase)) return phase; // old flat plan → same session every day
-  return phase[code as "mon" | "wed" | "fri"] ?? phase.mon ?? [];
+  // Prefer this weekday's session; fall back to the first available session so a
+  // schedule change (or a missing key) still yields a workout instead of nothing.
+  return phase[code] ?? Object.values(phase)[0] ?? [];
 }
 
 /** A mid-block check-in (~week 3-4): how it's feeling + whether we re-tuned. */

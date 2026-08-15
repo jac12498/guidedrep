@@ -5,16 +5,26 @@ import {
   AGE_BANDS,
   AVOID_AREAS,
   CAPABILITIES,
-  DAYS_OPTIONS,
+  countStrengthDays,
   DEFAULT_PROFILE,
   EQUIPMENT,
   EXPERIENCE,
   GOALS,
   INTENSITY,
+  MAX_RECOMMENDED_STRENGTH_DAYS,
   MINUTES_OPTIONS,
+  scheduleOf,
   SEX_OPTIONS,
+  WEEKDAYS,
   type FitnessProfile,
+  type WeekdayActivity,
 } from "@/lib/fitness";
+
+const ACTIVITIES: { value: WeekdayActivity; label: string; icon: string }[] = [
+  { value: "strength", label: "Strength", icon: "💪" },
+  { value: "aerobic", label: "Aerobic", icon: "🚶" },
+  { value: "rest", label: "Rest", icon: "🌙" },
+];
 
 export default function FitnessQuestionnaire({
   initial,
@@ -33,7 +43,8 @@ export default function FitnessQuestionnaire({
   const start = { ...DEFAULT_PROFILE, ...initial };
   const [goal, setGoal] = useState(start.goal);
   const [experience, setExperience] = useState(start.experience);
-  const [daysPerWeek, setDays] = useState(start.daysPerWeek);
+  const [schedule, setSchedule] = useState<WeekdayActivity[]>(scheduleOf(start));
+  const [scheduleAck, setScheduleAck] = useState(false);
   const [sessionMinutes, setMinutes] = useState(start.sessionMinutes);
   const [equipment, setEquipment] = useState<string[]>(start.equipment);
   const [avoid, setAvoid] = useState<string[]>(start.avoid);
@@ -51,11 +62,20 @@ export default function FitnessQuestionnaire({
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
   }
 
+  const strengthCount = countStrengthDays(schedule);
+  const tooManyStrength = strengthCount > MAX_RECOMMENDED_STRENGTH_DAYS;
+
+  function setDayActivity(i: number, a: WeekdayActivity) {
+    setSchedule((prev) => prev.map((v, idx) => (idx === i ? a : v)));
+    setScheduleAck(false); // any change re-arms the "too many" confirmation
+  }
+
   function submit() {
     onSubmit({
       goal,
       experience,
-      daysPerWeek,
+      schedule,
+      daysPerWeek: strengthCount, // legacy field, derived from the schedule
       sessionMinutes,
       equipment: equipment.length ? equipment : ["Bodyweight only"],
       avoid,
@@ -87,15 +107,58 @@ export default function FitnessQuestionnaire({
       ),
     },
     {
-      title: "Your schedule",
+      title: "Your week",
       render: () => (
         <>
-          <Field label="Days per week you can train">
-            <Chips
-              options={DAYS_OPTIONS.map(String)}
-              value={String(daysPerWeek)}
-              onChange={(v) => setDays(Number(v))}
-            />
+          <Field label="Plan each day" hint="Strength, aerobic, or rest">
+            <div className="space-y-1.5">
+              {WEEKDAYS.map((w, i) => (
+                <div key={w.code} className="flex items-center gap-2">
+                  <span className="w-9 shrink-0 text-sm font-medium text-muted">{w.short}</span>
+                  <div className="flex flex-1 gap-1">
+                    {ACTIVITIES.map((a) => {
+                      const active = schedule[i] === a.value;
+                      return (
+                        <button
+                          key={a.value}
+                          type="button"
+                          onClick={() => setDayActivity(i, a.value)}
+                          className={`flex flex-1 items-center justify-center gap-1 rounded-lg py-2 text-xs font-medium transition ${
+                            active
+                              ? "bg-brand text-black"
+                              : "bg-surface-2 text-muted hover:text-foreground"
+                          }`}
+                        >
+                          <span aria-hidden>{a.icon}</span>
+                          {a.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {strengthCount === 0 ? (
+              <p className="mt-3 rounded-xl bg-yellow-500/10 p-3 text-sm text-foreground">
+                Pick at least one <strong>strength</strong> day to build a program.
+              </p>
+            ) : tooManyStrength ? (
+              <div className="mt-3 rounded-xl border border-yellow-500/50 bg-yellow-500/10 p-3 text-sm">
+                <p>
+                  ⚠️ {strengthCount} strength days is a lot — most people need a rest or aerobic day
+                  between strength sessions to recover well.
+                </p>
+                <label className="mt-2 flex items-start gap-2 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={scheduleAck}
+                    onChange={(e) => setScheduleAck(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>Yes, keep {strengthCount} strength days — I recover fine.</span>
+                </label>
+              </div>
+            ) : null}
           </Field>
           <Field label="Time per session">
             <Chips
@@ -183,6 +246,9 @@ export default function FitnessQuestionnaire({
 
   const current = Math.min(step, steps.length - 1);
   const isLast = current === steps.length - 1;
+  // The schedule step ("Your week") is index 1 — block advancing until it's valid.
+  const scheduleBlocked =
+    current === 1 && (strengthCount === 0 || (tooManyStrength && !scheduleAck));
 
   return (
     <div>
@@ -222,7 +288,7 @@ export default function FitnessQuestionnaire({
         {isLast ? (
           <button
             onClick={submit}
-            disabled={submitting}
+            disabled={submitting || scheduleBlocked}
             className="flex-1 rounded-2xl bg-brand py-3.5 font-bold text-black disabled:opacity-60"
           >
             {submitting ? "Working…" : submitLabel}
@@ -231,7 +297,8 @@ export default function FitnessQuestionnaire({
           <button
             type="button"
             onClick={() => setStep(current + 1)}
-            className="flex-1 rounded-2xl bg-brand py-3.5 font-bold text-black"
+            disabled={scheduleBlocked}
+            className="flex-1 rounded-2xl bg-brand py-3.5 font-bold text-black disabled:opacity-60"
           >
             Next
           </button>

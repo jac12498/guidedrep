@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description: `How ${SITE.name} handles your data.`,
 };
 
-const UPDATED = "August 11, 2026";
+const UPDATED = "August 15, 2026";
 
 export default function PrivacyPage() {
   return (
@@ -53,6 +53,15 @@ export default function PrivacyPage() {
             When you generate a routine, the preferences you enter (time, focus, equipment, and
             notes) are sent to our AI provider to produce the routine. Don&apos;t include sensitive
             personal information in those fields.
+          </p>
+        </Section>
+
+        <Section title="Anonymous visit counts">
+          <p>
+            To understand how many people visit the site, we count visits using a random identifier
+            stored in your browser. It isn&apos;t linked to your name, email, or account, and we
+            don&apos;t use cookies, collect your IP address, or use any third-party analytics or
+            advertising trackers for this. Clearing your browser storage resets the identifier.
           </p>
         </Section>
 

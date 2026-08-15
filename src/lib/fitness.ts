@@ -6,8 +6,11 @@ export const GOALS = [
   "Lose weight",
   "Build strength",
   "Mobility & flexibility",
+  "Bone health & balance",
   "Stay active",
 ] as const;
+
+export const BONE_HEALTH_GOAL = "Bone health & balance";
 
 export const EXPERIENCE = [
   "New to exercise",
@@ -148,6 +151,12 @@ export function describeProfile(p: FitnessProfile): string {
     `- Aerobic days: ${aerobicDays.join(", ") || "none"}`,
     `- Equipment: ${p.equipment.length ? p.equipment.join(", ") : "bodyweight only"}`,
   ];
+  if (p.goal === BONE_HEALTH_GOAL) {
+    lines.push(
+      "- BONE-HEALTH & POSTURE EMPHASIS: prioritize weight-bearing and resistance movements (best for bone density), balance and fall-prevention drills, and postural / spinal-EXTENSION work.",
+      "- BONE-HEALTH SAFETY (must follow): AVOID loaded or repeated spinal FLEXION — no crunches, sit-ups, toe-touches, or deep forward folds; AVOID rapid or loaded spinal twisting; AVOID high-impact or jumping. Favor upright, controlled, supported movements.",
+    );
+  }
   if (p.avoid.length) lines.push(`- Go easy on / avoid loading: ${p.avoid.join(", ")}`);
   if (p.avoidNote?.trim()) lines.push(`- Notes on injuries/limitations: ${p.avoidNote.trim()}`);
   if (p.ageBand) lines.push(`- Age range: ${p.ageBand}`);

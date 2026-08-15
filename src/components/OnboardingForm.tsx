@@ -29,6 +29,7 @@ export default function OnboardingForm({
   const [step, setStep] = useState<Step>("basics");
   const [name, setName] = useState(initialName);
   const [agree, setAgree] = useState(false);
+  const [osteo, setOsteo] = useState<"" | "no" | "yes" | "unsure">("");
   const [error, setError] = useState<string | null>(null);
   // Answers (and maybe routines) carried over from the pre-signup /start quiz.
   const [pending, setPending] = useState<PendingOnboarding | null>(null);
@@ -176,6 +177,45 @@ export default function OnboardingForm({
         </div>
 
         <div>
+          <span className="mb-1 block text-sm font-medium">A quick health check</span>
+          <p className="mb-2 text-xs text-muted">
+            Have you been diagnosed with osteoporosis or low bone density, or had a fragility
+            (low-trauma) fracture?
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { v: "no", label: "No" },
+                { v: "yes", label: "Yes" },
+                { v: "unsure", label: "Not sure" },
+              ] as const
+            ).map((o) => (
+              <button
+                key={o.v}
+                type="button"
+                onClick={() => setOsteo(o.v)}
+                className={`rounded-full px-4 py-1.5 text-sm transition ${
+                  osteo === o.v ? "bg-brand text-black" : "bg-surface-2 text-muted hover:text-foreground"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {osteo === "yes" || osteo === "unsure" ? (
+            <div className="mt-3 rounded-xl border border-yellow-500/50 bg-yellow-500/10 p-4 text-sm">
+              <p className="font-semibold">Best to check with your doctor first 💛</p>
+              <p className="mt-1 text-foreground/90">
+                Bone health deserves exercise guidance tailored to you by a professional, so Guided
+                Reps isn&apos;t the right fit right now — we don&apos;t want to guess with something
+                this important. Please talk with your doctor or a physical therapist. If they clear
+                you for general exercise, we&apos;d love to welcome you back.
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div>
           <span className="mb-1 block text-sm font-medium">{DISCLAIMER_TITLE}</span>
           <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-border bg-surface p-4 text-sm text-muted">
             {DISCLAIMER_PARAGRAPHS.map((p, i) => (
@@ -202,7 +242,7 @@ export default function OnboardingForm({
             if (pending?.profile) finish(pending.profile, pending.routines);
             else setStep("questionnaire");
           }}
-          disabled={!name.trim() || !agree}
+          disabled={!name.trim() || !agree || osteo !== "no"}
           className="w-full rounded-2xl bg-brand py-4 font-bold text-black disabled:opacity-50"
         >
           {pending ? "Agree & finish" : "Agree & continue"}

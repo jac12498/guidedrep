@@ -23,11 +23,19 @@ export async function POST(req: Request) {
   const visitor_id = clip(body.vid, 64);
   if (!visitor_id) return new NextResponse(null, { status: 204 });
 
-  await admin.from("site_visits").insert({
+  const { error } = await admin.from("site_visits").insert({
     visitor_id,
     path: clip(body.path, 256),
     referrer: clip(body.referrer, 256),
   });
 
+  // TEMP diagnostic: surface insert failures (non-sensitive schema errors) so we
+  // can confirm the table/service-role are wired. Revert to a silent 204 after.
+  if (error) {
+    return NextResponse.json(
+      { ok: false, message: error.message, code: error.code, details: error.details },
+      { status: 200 },
+    );
+  }
   return new NextResponse(null, { status: 204 });
 }

@@ -109,7 +109,10 @@ export const AI_FREE_LIMIT = 3; // free AI generations before Pro is required
  * their access and billing management regardless.
  */
 export function proPurchaseEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_PRO_ENABLED !== "false";
+  // Tolerant of stray whitespace/case from the hosting UI so a soft-launch
+  // gate can't be silently defeated by "False", "false ", a newline, etc.
+  const v = (process.env.NEXT_PUBLIC_PRO_ENABLED ?? "").trim().toLowerCase();
+  return !(v === "false" || v === "0" || v === "no" || v === "off");
 }
 
 export const TIERS: Tier[] = [

@@ -1,4 +1,4 @@
-name: Inspect 2019 income cross-check weights
+name: Calculate 2019 income cross-check
 
 on:
   push:
@@ -6,21 +6,102 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect:
+  calculate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect Census 2020 ASEC alternative-weight file
+      - name: Install Python dependencies
+        run: python -m pip install --quiet pandas numpy requests
+
+      - name: Calculate standard and nonresponse-adjusted 2019 belts
         shell: bash
         run: |
-          set -euxo pipefail
-          curl -LsSf "https://www2.census.gov/programs-surveys/demo/datasets/income-poverty/time-series/data-extracts/2020/cps2020_ebw_covidnonresp.csv" -o /tmp/ebw.csv
-          echo "===== ALTERNATIVE WEIGHT HEADER ====="
-          head -3 /tmp/ebw.csv
+          cat > /tmp/crosscheck.py <<'PY'
+          import io, zipfile, requests, numpy as np, pandas as pd
 
-          curl -LsSf "https://www2.census.gov/programs-surveys/cps/datasets/2020/march/asecpub20csv.zip" -o /tmp/asec20.zip
-          unzip -q /tmp/asec20.zip -d /tmp/asec20
-          for f in /tmp/asec20/*.csv; do
-            echo "===== $(basename "$f") ====="
-            head -1 "$f"
-          done
+          def wmedian(x,w):
+              x=np.asarray(x,float); w=np.asarray(w,float)
+              m=np.isfinite(x)&np.isfinite(w)&(w>0); x=x[m]; w=w[m]
+              o=np.argsort(x,kind="mergesort"); x=x[o]; w=w[o]
+              return float(x[np.searchsorted(np.cumsum(w),w.sum()/2,side="left")])
+
+          def shares(eq,w,med,lo,hi):
+              eq=np.asarray(eq,float); w=np.asarray(w,float)
+              m=np.isfinite(eq)&np.isfinite(w)&(w>0); eq=eq[m]; w=w[m]
+              d=w.sum()
+              return 100*w[eq<lo*med].sum()/d,100*w[(eq>=lo*med)&(eq<=hi*med)].sum()/d,100*w[eq>hi*med].sum()/d
+
+          s=requests.Session(); s.headers.update({"User-Agent":"AEB-2019-crosscheck/1.0"})
+          def get(url):
+              r=s.get(url,timeout=180); r.raise_for_status(); return r.content
+
+          z=zipfile.ZipFile(io.BytesIO(get("https://www2.census.gov/programs-surveys/cps/datasets/2020/march/asecpub20csv.zip")))
+          hhname=[n for n in z.namelist() if n.lower().endswith("hhpub20.csv")][0]
+          ppname=[n for n in z.namelist() if n.lower().endswith("pppub20.csv")][0]
+          hhcols={"H_SEQ","H_NUMPER","HTOTVAL","HSUP_WGT","HHSTATUS"}
+          ppcols={"PH_SEQ","PPPOS","MARSUPWT","A_EXPRRP"}
+          hh=pd.read_csv(z.open(hhname),usecols=lambda x:x.upper() in hhcols,low_memory=False)
+          pp=pd.read_csv(z.open(ppname),usecols=lambda x:x.upper() in ppcols,low_memory=False)
+          hh.columns=[x.upper() for x in hh.columns]; pp.columns=[x.upper() for x in pp.columns]
+          for c in hh.columns: hh[c]=pd.to_numeric(hh[c],errors="coerce")
+          for c in pp.columns: pp[c]=pd.to_numeric(pp[c],errors="coerce")
+
+          ebw=pd.read_csv(io.BytesIO(get("https://www2.census.gov/programs-surveys/demo/datasets/income-poverty/time-series/data-extracts/2020/cps2020_ebw_covidnonresp.csv")))
+          ebw.columns=[x.lower() for x in ebw.columns]
+          for c in ebw.columns: ebw[c]=pd.to_numeric(ebw[c],errors="coerce")
+          pp=pp.merge(ebw,left_on=["PH_SEQ","PPPOS"],right_on=["h_seq","pppos"],how="left",validate="one_to_one")
+          if pp.ebw_pu_person.isna().any():
+              raise RuntimeError(f"Missing alternative weights for {pp.ebw_pu_person.isna().sum()} persons")
+
+          # Public-use EBW file contains adjustment factors; final alternative person weight
+          # is the survey supplement weight times ebw_pu_person.
+          pp["PW_STD"]=pp["MARSUPWT"]
+          pp["PW_EBW"]=pp["MARSUPWT"]*pp["ebw_pu_person"]
+
+          h=hh[(hh.HHSTATUS>0)&(hh.H_NUMPER>0)&hh.HTOTVAL.notna()&(hh.HSUP_WGT>0)].copy()
+          h["EQ"]=h.HTOTVAL/np.sqrt(h.H_NUMPER)
+          eqmap=h.drop_duplicates("H_SEQ").set_index("H_SEQ")["EQ"]
+
+          p=pp[pp.PH_SEQ.isin(eqmap.index)].copy()
+          p["EQ"]=p.PH_SEQ.map(eqmap)
+
+          # Householder is the reference person (A_EXPRRP 1 or 2).
+          heads=p[p.A_EXPRRP.isin([1,2])].copy()
+          if heads.PH_SEQ.duplicated().any():
+              raise RuntimeError("Multiple householders detected within household")
+          heads=heads[heads.PH_SEQ.isin(eqmap.index)].copy()
+          heads["EQ"]=heads.PH_SEQ.map(eqmap)
+
+          # Validate weight interpretation against Census Table A4:
+          # 2019 current-dollar median household income: survey 68,700; public-use EBW 66,810.
+          med_raw_std=wmedian(h.set_index("H_SEQ").loc[heads.PH_SEQ,"HTOTVAL"].values, heads.PW_STD)
+          med_raw_ebw=wmedian(h.set_index("H_SEQ").loc[heads.PH_SEQ,"HTOTVAL"].values, heads.PW_EBW)
+          print(f"VALIDATION raw household median: survey={med_raw_std:.0f}, alt_EBW={med_raw_ebw:.0f}")
+          if abs(med_raw_ebw-66810)>800:
+              raise RuntimeError("Alternative-weight interpretation does not reproduce Census published median closely enough")
+
+          rows=[]
+          for label,pw,hw in [
+              ("standard","PW_STD","PW_STD"),
+              ("census_public_use_EBW","PW_EBW","PW_EBW"),
+          ]:
+              med=wmedian(heads.EQ,heads[hw])
+              for belt,lo,hi in [
+                  ("near_median_90_110",.90,1.10),
+                  ("broader_80_120",.80,1.20),
+                  ("conventional_2_3_2x",2/3,2.0),
+              ]:
+                  b,i,a=shares(p.EQ,p[pw],med,lo,hi)
+                  rows.append([2019,label,belt,med,b,i,a])
+          out=pd.DataFrame(rows,columns=["income_year","weighting","belt","household_weighted_adjusted_median","below_pct","inside_pct","above_pct"])
+          print("===== 2019 CROSS-CHECK =====")
+          print(out.to_csv(index=False,float_format="%.3f"))
+          out.to_csv("2019_crosscheck.csv",index=False,float_format="%.6f")
+          PY
+          python /tmp/crosscheck.py
+
+      - name: Upload 2019 cross-check
+        uses: actions/upload-artifact@v4
+        with:
+          name: near-median-income-2019-crosscheck
+          path: 2019_crosscheck.csv

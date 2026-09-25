@@ -5,6 +5,9 @@ on:
     branches:
       - analysis/near-median-income
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
 
 jobs:
   inspect:

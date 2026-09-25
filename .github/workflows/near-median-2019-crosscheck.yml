@@ -53,10 +53,11 @@ jobs:
           if pp.ebw_pu_person.isna().any():
               raise RuntimeError(f"Missing alternative weights for {pp.ebw_pu_person.isna().sum()} persons")
 
-          # Public-use EBW file contains adjustment factors; final alternative person weight
-          # is the survey supplement weight times ebw_pu_person.
+          # Census releases the public-use entropy-balance weights directly.
+          # Their absolute scale is irrelevant to weighted medians/shares.
           pp["PW_STD"]=pp["MARSUPWT"]
-          pp["PW_EBW"]=pp["MARSUPWT"]*pp["ebw_pu_person"]
+          pp["PW_EBW"]=pp["ebw_pu_person"]
+          pp["PW_EBW_PRODUCT_TEST"]=pp["MARSUPWT"]*pp["ebw_pu_person"]
 
           h=hh[(hh.HHSTATUS>0)&(hh.H_NUMPER>0)&hh.HTOTVAL.notna()&(hh.HSUP_WGT>0)].copy()
           h["EQ"]=h.HTOTVAL/np.sqrt(h.H_NUMPER)
@@ -76,7 +77,8 @@ jobs:
           # 2019 current-dollar median household income: survey 68,700; public-use EBW 66,810.
           med_raw_std=wmedian(h.set_index("H_SEQ").loc[heads.PH_SEQ,"HTOTVAL"].values, heads.PW_STD)
           med_raw_ebw=wmedian(h.set_index("H_SEQ").loc[heads.PH_SEQ,"HTOTVAL"].values, heads.PW_EBW)
-          print(f"VALIDATION raw household median: survey={med_raw_std:.0f}, alt_EBW={med_raw_ebw:.0f}")
+          med_raw_product=wmedian(h.set_index("H_SEQ").loc[heads.PH_SEQ,"HTOTVAL"].values, heads.PW_EBW_PRODUCT_TEST)
+          print(f"VALIDATION raw household median: survey={med_raw_std:.0f}, direct_EBW={med_raw_ebw:.0f}, multiplied_test={med_raw_product:.0f}")
           if abs(med_raw_ebw-66810)>800:
               raise RuntimeError("Alternative-weight interpretation does not reproduce Census published median closely enough")
 

@@ -2,36 +2,25 @@ name: Near-median income diagnostic
 
 on:
   push:
-    branches:
-      - analysis/near-median-income
+    branches: [analysis/near-median-income]
   workflow_dispatch:
-  pull_request:
-    branches:
-      - main
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect early March CPS layouts
+      - name: Inspect NBER record layouts
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p diagnostic
-          for yy in 81 89 93; do
-            for ext in dct do; do
-              url="https://www.nber.org/data/progs/cps/cpsmar${yy}.${ext}"
-              echo "FETCH $url"
-              curl -L --fail --retry 3 "$url" -o "diagnostic/cpsmar${yy}.${ext}"
-            done
-            echo "===== FIELDS $yy ====="
-            grep -Ein 'hrecord|h_seq|h_numper|h_type|h_livqrt|htotval|hsup_wgt|marsupwt|precord|ph_seq' "diagnostic/cpsmar${yy}.dct" || true
-            echo "===== LABELS $yy ====="
-            grep -A18 -Ein '^label define h_type|^label define h_livqrt|^label define hrecord|^label define precord' "diagnostic/cpsmar${yy}.do" || true
+          for yy in 01 09; do
+            curl -LsSf "https://www.nber.org/data/progs/cps/cpsmar${yy}.dct" -o "cpsmar${yy}.dct"
+            curl -LsSf "https://www.nber.org/data/progs/cps/cpsmar${yy}.do" -o "cpsmar${yy}.do"
+            echo "===== $yy DICT TARGETS ====="
+            grep -nEi 'hrecord|h_seq|h_numper|h_type |h_livqrt|hsup|htotval|precord|ph_seq|marsupwt' "cpsmar${yy}.dct" || true
+            echo "===== $yy RECORD LABELS ====="
+            grep -A15 -nEi '^label define (hrecord|precord|h_type|h_livqrt|p_stat)' "cpsmar${yy}.do" || true
+            echo "===== $yy FIRST 12 DICT LINES ====="
+            head -12 "cpsmar${yy}.dct"
           done
-      - name: Upload diagnostic files
-        uses: actions/upload-artifact@v4
-        with:
-          name: cps-early-layout-diagnostic
-          path: diagnostic/

@@ -78,7 +78,9 @@ jobs:
                       "below_share_pct":100*pb,
                       "inside_share_pct":100*pi,
                       "above_share_pct":100*pa,
+                      "below_share_household_median_pct":100*hb,
                       "inside_share_household_median_pct":100*hi_s,
+                      "above_share_household_median_pct":100*ha,
                       "inside_sensitivity_pp":100*(hi_s-pi),
                   })
               diagnostics.append({

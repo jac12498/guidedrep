@@ -1,0 +1,7 @@
+income_year,weighting,belt,household_weighted_adjusted_median,below_pct,inside_pct,above_pct
+2019,standard,near_median_90_110,46603.287,43.357,9.668,46.975
+2019,standard,broader_80_120,46603.287,38.043,19.216,42.741
+2019,standard,conventional_2_3_2x,46603.287,30.766,50.067,19.166
+2019,census_public_use_EBW,near_median_90_110,45316.352,43.524,9.441,47.034
+2019,census_public_use_EBW,broader_80_120,45316.352,38.200,19.139,42.661
+2019,census_public_use_EBW,conventional_2_3_2x,45316.352,30.848,49.887,19.266

@@ -60,16 +60,16 @@ jobs:
               # Required columns:
               # persons: eq, pw
               # households: eq, hw
-              pm=weighted_median(persons.eq, persons.pw)
-              hm=weighted_median(households.eq, households.hw)
+              pm=weighted_median(persons["eq"], persons["pw"])
+              hm=weighted_median(households["eq"], households["hw"])
               rows=[]
               for name,lo,hi in [
                   ("near_median_90_110",0.90,1.10),
                   ("broader_80_120",0.80,1.20),
                   ("conventional_2_3_2x",2/3,2.0),
               ]:
-                  pb,pi,pa=shares(persons.eq, persons.pw, pm, lo, hi)
-                  hb,hi_s,ha=shares(persons.eq, persons.pw, hm, lo, hi)
+                  pb,pi,pa=shares(persons["eq"], persons["pw"], pm, lo, hi)
+                  hb,hi_s,ha=shares(persons["eq"], persons["pw"], hm, lo, hi)
                   rows.append({
                       "income_year":year,"source":source,"belt":name,
                       "person_weighted_median":pm,
@@ -84,10 +84,10 @@ jobs:
               diagnostics.append({
                   "income_year":year,"source":source,
                   "person_rows":len(persons),"household_rows":len(households),
-                  "person_weight_sum":float(persons.pw.sum()),
-                  "household_weight_sum":float(households.hw.sum()),
-                  "eq_income_min":float(persons.eq.min()),
-                  "eq_income_max":float(persons.eq.max()),
+                  "person_weight_sum":float(persons["pw"].sum()),
+                  "household_weight_sum":float(households["hw"].sum()),
+                  "eq_income_min":float(persons["eq"].min()),
+                  "eq_income_max":float(persons["eq"].max()),
               })
               return rows
 

@@ -14,40 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect universe codes and modern CSV headers
+      - name: Inspect early March CPS layouts
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p diagnostic
-
-          for yy in 01 09; do
+          for yy in 81 89 93; do
             for ext in dct do; do
-              curl -L --fail --retry 3 "https://www.nber.org/data/progs/cps/cpsmar${yy}.${ext}" -o "diagnostic/cpsmar${yy}.${ext}"
+              url="https://www.nber.org/data/progs/cps/cpsmar${yy}.${ext}"
+              echo "FETCH $url"
+              curl -L --fail --retry 3 "$url" -o "diagnostic/cpsmar${yy}.${ext}"
             done
+            echo "===== FIELDS $yy ====="
+            grep -Ein 'hrecord|h_seq|h_numper|h_type|h_livqrt|htotval|hsup_wgt|marsupwt|precord|ph_seq' "diagnostic/cpsmar${yy}.dct" || true
             echo "===== LABELS $yy ====="
-            grep -A25 -Ein '^label define h_type|^label define h_livqrt|^label define hrecord|^label define precord' "diagnostic/cpsmar${yy}.do" || true
-            grep -Ein 'hsup_wgt|marsupwt|htotval|h_numper|h_type|h_livqrt|hrecord|precord|ph_seq|h_seq' "diagnostic/cpsmar${yy}.dct" || true
-          done
-
-          curl -L --fail --retry 3 "https://www2.census.gov/programs-surveys/cps/datasets/2017/march/08ASEC2017_Data_Dict_Full.txt" -o diagnostic/asec2017_dict.txt
-          echo "===== 2017 FIELD POSITIONS ====="
-          grep -Ein 'H_SEQ|H_NUMPER|H_TYPE|H_LIVQRT|HTOTVAL|HSUP_WGT|MARSUPWT|PRECORD|PH_SEQ|HRECORD' diagnostic/asec2017_dict.txt || true
-
-          for yy in 21 25 26; do
-            year="20${yy}"
-            url="https://www2.census.gov/programs-surveys/cps/datasets/${year}/march/asecpub${yy}csv.zip"
-            curl -L --fail --retry 3 "$url" -o "diagnostic/asecpub${yy}csv.zip"
-            echo "===== ZIP $yy ====="
-            unzip -l "diagnostic/asecpub${yy}csv.zip" | head -30
-            mkdir -p "diagnostic/csv${yy}"
-            unzip -q "diagnostic/asecpub${yy}csv.zip" -d "diagnostic/csv${yy}"
-            for file in diagnostic/csv${yy}/*.csv; do
-              echo "===== HEADER $file ====="
-              head -1 "$file"
-            done
+            grep -A18 -Ein '^label define h_type|^label define h_livqrt|^label define hrecord|^label define precord' "diagnostic/cpsmar${yy}.do" || true
           done
       - name: Upload diagnostic files
         uses: actions/upload-artifact@v4
         with:
-          name: cps-field-diagnostic
+          name: cps-early-layout-diagnostic
           path: diagnostic/

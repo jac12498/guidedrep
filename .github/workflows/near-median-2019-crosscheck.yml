@@ -1,0 +1,26 @@
+name: Inspect 2019 income cross-check weights
+
+on:
+  push:
+    branches: [analysis/near-median-income]
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect Census 2020 ASEC alternative-weight file
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -LsSf "https://www2.census.gov/programs-surveys/demo/datasets/income-poverty/time-series/data-extracts/2020/cps2020_ebw_covidnonresp.csv" -o /tmp/ebw.csv
+          echo "===== ALTERNATIVE WEIGHT HEADER ====="
+          head -3 /tmp/ebw.csv
+
+          curl -LsSf "https://www2.census.gov/programs-surveys/cps/datasets/2020/march/asecpub20csv.zip" -o /tmp/asec20.zip
+          unzip -q /tmp/asec20.zip -d /tmp/asec20
+          for f in /tmp/asec20/*.csv; do
+            echo "===== $(basename "$f") ====="
+            head -1 "$f"
+          done

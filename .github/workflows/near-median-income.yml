@@ -14,23 +14,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect NBER March CPS dictionaries
+      - name: Inspect legacy NBER and modern Census ASEC sources
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p diagnostic
-          for yy in 01 09 17 21; do
+          for yy in 01 09; do
             for ext in dct do; do
               url="https://www.nber.org/data/progs/cps/cpsmar${yy}.${ext}"
-              echo "FETCH $url"
-              curl -L --fail --retry 3 "$url" -o "diagnostic/cpsmar${yy}.${ext}" || true
+              curl -L --fail --retry 3 "$url" -o "diagnostic/cpsmar${yy}.${ext}"
+            done
+            rawurl="https://www.nber.org/cps/cpsmar${yy}.zip"
+            curl -L --fail --retry 3 "$rawurl" -o "diagnostic/cpsmar${yy}.zip"
+            unzip -l "diagnostic/cpsmar${yy}.zip" | head -30
+          done
+
+          for yy in 17 21 25 26; do
+            url="https://www2.census.gov/programs-surveys/cps/datasets/20${yy}/march/asecpub${yy}csv.zip"
+            echo "FETCH $url"
+            curl -L --fail --retry 3 "$url" -o "diagnostic/asecpub${yy}csv.zip"
+            unzip -l "diagnostic/asecpub${yy}csv.zip" | head -30
+            tmp="diagnostic/census${yy}"
+            mkdir -p "$tmp"
+            unzip -q "diagnostic/asecpub${yy}csv.zip" -d "$tmp"
+            for f in "$tmp"/*.csv; do
+              echo "===== HEADER $f ====="
+              head -1 "$f"
             done
           done
-          for f in diagnostic/*; do
+
+          for f in diagnostic/cpsmar*.dct; do
             echo "===== $f ====="
-            grep -Ein 'HTOTVAL|H_TOT|H_NUMPER|HNUMPER|MARSUPWT|H_SEQ|H_LIVQRT|H_TYPE|RECTYPE|RECORD' "$f" || true
+            grep -Ein 'hrecord|h_seq|h_numper|h_type|h_livqrt|htotval|marsupwt|precord' "$f" || true
           done
-      - name: Upload diagnostic dictionaries
+      - name: Upload diagnostic files
         uses: actions/upload-artifact@v4
         with:
           name: cps-dictionary-diagnostic

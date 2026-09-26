@@ -1,0 +1,192 @@
+name: Calculate AHS ACS housing bridge
+
+on:
+  push:
+    branches: [analysis/near-median-income]
+  workflow_dispatch:
+
+jobs:
+  calculate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: python -m pip install --quiet pandas numpy requests
+
+      - name: Calculate 2009 2017 2021 AHS ACS bridge
+        shell: bash
+        run: |
+          cat > /tmp/bridge.py <<'PY'
+          import io, re, zipfile, requests, numpy as np, pandas as pd
+          from urllib.parse import urljoin
+
+          YEARS=[2009,2017,2021]
+          s=requests.Session()
+          s.headers.update({"User-Agent":"AEB-housing-bridge/1.0"})
+
+          def get(url):
+              r=s.get(url,timeout=240)
+              r.raise_for_status()
+              return r.content
+
+          def wmedian(x,w):
+              x=np.asarray(x,float); w=np.asarray(w,float)
+              m=np.isfinite(x)&np.isfinite(w)&(w>0)
+              x=x[m]; w=w[m]
+              o=np.argsort(x,kind="mergesort"); x=x[o]; w=w[o]
+              return float(x[np.searchsorted(np.cumsum(w),w.sum()/2,side="left")])
+
+          def shares(x,w,med,lo,hi):
+              x=np.asarray(x,float); w=np.asarray(w,float)
+              m=np.isfinite(x)&np.isfinite(w)&(w>0)
+              x=x[m]; w=w[m]; d=w.sum()
+              return (100*w[x<lo*med].sum()/d,
+                      100*w[(x>=lo*med)&(x<=hi*med)].sum()/d,
+                      100*w[x>hi*med].sum()/d)
+
+          def add_rows(rows,year,source,measure,x,w):
+              med=wmedian(x,w)
+              for belt,lo,hi in [
+                  ("near_90_110",.90,1.10),
+                  ("broader_80_120",.80,1.20),
+                  ("wide_2_3_2x",2/3,2.0),
+              ]:
+                  b,i,a=shares(x,w,med,lo,hi)
+                  rows.append([year,source,measure,belt,med,b,i,a,len(x),float(np.nansum(w))])
+              return med
+
+          def find_ahs_zip(year):
+              base=f"https://www2.census.gov/programs-surveys/ahs/{year}/"
+              html=get(base).decode("utf-8","ignore")
+              pats=[
+                rf'href="([^"]*{year}[^"]*National[^"]*Flat%20CSV\.zip)"',
+                rf'href="([^"]*{year}[^"]*National[^"]*CSV\.zip)"',
+              ]
+              for p in pats:
+                  m=re.search(p,html,re.I)
+                  if m: return urljoin(base,m.group(1))
+              raise RuntimeError(f"No AHS national CSV zip found for {year}")
+
+          def load_ahs(year):
+              url=find_ahs_zip(year)
+              print("AHS ZIP",year,url)
+              z=zipfile.ZipFile(io.BytesIO(get(url)))
+              csv=[n for n in z.namelist() if n.lower().endswith(".csv")][0]
+              header=pd.read_csv(z.open(csv),nrows=0)
+              cols=set(c.upper() for c in header.columns)
+              if year==2009:
+                                  wanted=["STATUS","TENURE","VALUE","RENT","WGT90GEO","AMTE","AMTG","AMTO","AMTF","AMTW"]
+              else:
+                                  wanted=["INTSTATUS","TENURE","MARKETVAL","RENT","WEIGHT","ELECAMT","GASAMT","OILAMT","OTHERAMT","WATERAMT"]
+              missing=[c for c in wanted if c not in cols]
+              if missing:
+                  raise RuntimeError(f"AHS {year} missing {missing}; candidate columns {[c for c in cols if any(k in c for k in ['RENT','VALUE','MARKET','WEIGHT','WGT','TENURE','STATUS','UTIL'])][:80]}")
+              d=pd.read_csv(z.open(csv),usecols=lambda c:c.upper() in set(wanted),low_memory=False,dtype=str)
+              d.columns=[c.upper() for c in d.columns]
+              def parse_code(s):
+                  return pd.to_numeric(s.astype(str).str.extract(r'(-?\d+)', expand=False),errors="coerce")
+              if "TENURE" in d: d["TENURE"]=parse_code(d["TENURE"])
+              if "STATUS" in d: d["STATUS"]=parse_code(d["STATUS"])
+              if "INTSTATUS" in d: d["INTSTATUS"]=parse_code(d["INTSTATUS"])
+              for col in [x for x in wanted if x not in ["TENURE","STATUS","INTSTATUS"]]:
+                  d[col]=pd.to_numeric(d[col].astype(str).str.replace(",","",regex=False),errors="coerce")
+              print("AHS",year,"TENURE",d.TENURE.value_counts(dropna=False).head(10).to_dict())
+              if year==2009:
+                  print("AHS",year,"STATUS",d.STATUS.value_counts(dropna=False).head(10).to_dict())
+                  d=d[d.STATUS==1].copy()
+                  w=d.WGT90GEO
+                  owner=d[(d.TENURE==1)&d.VALUE.notna()&(d.VALUE>0)&(w>0)].copy()
+                  cash=d[(d.TENURE==2)&d.RENT.notna()&(d.RENT>0)&(w>0)].copy()
+                  # Reconstruct ACS-comparable gross rent. Utility variables are N/A when not separately paid;
+                  # treat those components as zero. Exclude trash/garbage because ACS gross rent excludes it.
+                  for col in ["AMTE","AMTG","AMTO","AMTF","AMTW"]:
+                      cash[col]=cash[col].where(cash[col]>=0,0).fillna(0)
+                  cash["GROSS_PROXY"]=cash.RENT + cash.AMTE + cash.AMTG + cash.AMTO/12.0 + cash.AMTF/12.0 + cash.AMTW/12.0
+                  renter=cash[cash.GROSS_PROXY>0].copy()
+                  return {
+                    "home_value":(owner.VALUE,owner.WGT90GEO),
+                    "gross_rent":(renter.GROSS_PROXY,renter.WGT90GEO),
+                    "contract_rent":(cash.RENT,cash.WGT90GEO)
+                  }
+              else:
+                  print("AHS",year,"INTSTATUS",d.INTSTATUS.value_counts(dropna=False).head(10).to_dict())
+                  d=d[d.INTSTATUS==1].copy()
+                  owner=d[(d.TENURE==1)&d.MARKETVAL.notna()&(d.MARKETVAL>0)&(d.WEIGHT>0)].copy()
+                  cash=d[(d.TENURE==2)&d.RENT.notna()&(d.RENT>0)&(d.WEIGHT>0)].copy()
+                  for col in ["ELECAMT","GASAMT","OILAMT","OTHERAMT","WATERAMT"]:
+                      cash[col]=cash[col].where(cash[col]>=0,0).fillna(0)
+                  cash["GROSS_PROXY"]=cash.RENT + cash.ELECAMT + cash.GASAMT + cash.OILAMT + cash.OTHERAMT + cash.WATERAMT
+                  renter=cash[cash.GROSS_PROXY>0].copy()
+                  return {
+                    "home_value":(owner.MARKETVAL,owner.WEIGHT),
+                    "gross_rent":(renter.GROSS_PROXY,renter.WEIGHT),
+                    "contract_rent":(cash.RENT,cash.WEIGHT)
+                  }
+
+          def load_acs(year):
+              url=f"https://www2.census.gov/programs-surveys/acs/data/pums/{year}/1-Year/csv_hus.zip"
+              print("ACS ZIP",year,url)
+              z=zipfile.ZipFile(io.BytesIO(get(url)))
+              need={"WGTP","TEN","VALP","GRNTP","RNTP","ADJHSG"}
+              frames=[]
+              for n in z.namelist():
+                  if not n.lower().endswith(".csv"): continue
+                  d=pd.read_csv(z.open(n),usecols=lambda c:c.upper() in need,low_memory=False)
+                  d.columns=[c.upper() for c in d.columns]
+                  if need.issubset(d.columns): frames.append(d[list(need)])
+              d=pd.concat(frames,ignore_index=True)
+              for c in need: d[c]=pd.to_numeric(d[c],errors="coerce")
+              adj=d.ADJHSG/1_000_000.0
+              d["VALUE_ADJ"]=d.VALP*adj
+              d["GRENT_ADJ"]=d.GRNTP*adj
+              d["RENT_ADJ"]=d.RNTP*adj
+              owner=d[d.TEN.isin([1,2])&d.VALUE_ADJ.notna()&(d.VALUE_ADJ>0)&(d.WGTP>0)].copy()
+              renter=d[(d.TEN==3)&d.GRENT_ADJ.notna()&(d.GRENT_ADJ>0)&(d.WGTP>0)].copy()
+              cash=d[(d.TEN==3)&d.RENT_ADJ.notna()&(d.RENT_ADJ>0)&(d.WGTP>0)].copy()
+              return {
+                "home_value":(owner.VALUE_ADJ,owner.WGTP),
+                "gross_rent":(renter.GRENT_ADJ,renter.WGTP),
+                "contract_rent":(cash.RENT_ADJ,cash.WGTP)
+              }
+
+          rows=[]
+          for year in YEARS:
+              ahs=load_ahs(year)
+              acs=load_acs(year)
+              print("\n=====",year,"MEDIANS =====")
+              for source,data in [("AHS",ahs),("ACS",acs)]:
+                  for measure,(x,w) in data.items():
+                      med=add_rows(rows,year,source,measure,x,w)
+                      print(year,source,measure,"median",round(med,2),"n",len(x),"weighted",round(float(np.nansum(w))))
+          out=pd.DataFrame(rows,columns=["year","source","measure","belt","median","below_pct","inside_pct","above_pct","sample_n","weighted_units"])
+          print("\n===== BRIDGE RESULTS =====")
+          print(out.to_csv(index=False,float_format="%.3f"))
+
+          # Paired differences, AHS - ACS.
+          piv=out.pivot_table(index=["year","measure","belt"],columns="source",values=["median","inside_pct","below_pct","above_pct"])
+          diff=[]
+          for idx,row in piv.iterrows():
+              year,measure,belt=idx
+              if ("inside_pct","AHS") in row.index and ("inside_pct","ACS") in row.index:
+                  diff.append([
+                    year,measure,belt,
+                    row[("median","AHS")],row[("median","ACS")],
+                    row[("inside_pct","AHS")]-row[("inside_pct","ACS")],
+                    row[("below_pct","AHS")]-row[("below_pct","ACS")],
+                    row[("above_pct","AHS")]-row[("above_pct","ACS")]
+                  ])
+          dif=pd.DataFrame(diff,columns=["year","measure","belt","ahs_median","acs_median","inside_diff_pp","below_diff_pp","above_diff_pp"])
+          print("===== AHS MINUS ACS =====")
+          print(dif.to_csv(index=False,float_format="%.3f"))
+          out.to_csv("housing_bridge_results.csv",index=False,float_format="%.6f")
+          dif.to_csv("housing_bridge_differences.csv",index=False,float_format="%.6f")
+          PY
+          python /tmp/bridge.py
+
+      - name: Upload bridge results
+        uses: actions/upload-artifact@v4
+        with:
+          name: housing-distribution-bridge
+          path: |
+            housing_bridge_results.csv
+            housing_bridge_differences.csv

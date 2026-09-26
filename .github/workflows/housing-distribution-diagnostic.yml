@@ -84,7 +84,7 @@ jobs:
               d=pd.read_csv(z.open(csv),usecols=lambda c:c.upper() in set(wanted),low_memory=False,dtype=str)
               d.columns=[c.upper() for c in d.columns]
               def parse_code(s):
-                  return pd.to_numeric(s.astype(str).str.extract(r'(-?\\d+)', expand=False),errors="coerce")
+                  return pd.to_numeric(s.astype(str).str.extract(r'(-?\d+)', expand=False),errors="coerce")
               if "TENURE" in d: d["TENURE"]=parse_code(d["TENURE"])
               if "STATUS" in d: d["STATUS"]=parse_code(d["STATUS"])
               if "INTSTATUS" in d: d["INTSTATUS"]=parse_code(d["INTSTATUS"])

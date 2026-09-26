@@ -81,9 +81,15 @@ jobs:
               missing=[c for c in wanted if c not in cols]
               if missing:
                   raise RuntimeError(f"AHS {year} missing {missing}; candidate columns {[c for c in cols if any(k in c for k in ['RENT','VALUE','MARKET','WEIGHT','WGT','TENURE','STATUS','UTIL'])][:80]}")
-              d=pd.read_csv(z.open(csv),usecols=lambda c:c.upper() in set(wanted),low_memory=False)
+              d=pd.read_csv(z.open(csv),usecols=lambda c:c.upper() in set(wanted),low_memory=False,dtype=str)
               d.columns=[c.upper() for c in d.columns]
-              for c in wanted: d[c]=pd.to_numeric(d[c],errors="coerce")
+              def parse_code(s):
+                  return pd.to_numeric(s.astype(str).str.extract(r'(-?\\d+)', expand=False),errors="coerce")
+              if "TENURE" in d: d["TENURE"]=parse_code(d["TENURE"])
+              if "STATUS" in d: d["STATUS"]=parse_code(d["STATUS"])
+              if "INTSTATUS" in d: d["INTSTATUS"]=parse_code(d["INTSTATUS"])
+              for col in [x for x in wanted if x not in ["TENURE","STATUS","INTSTATUS"]]:
+                  d[col]=pd.to_numeric(d[col].astype(str).str.replace(",","",regex=False),errors="coerce")
               print("AHS",year,"TENURE",d.TENURE.value_counts(dropna=False).head(10).to_dict())
               if year==2009:
                   print("AHS",year,"STATUS",d.STATUS.value_counts(dropna=False).head(10).to_dict())

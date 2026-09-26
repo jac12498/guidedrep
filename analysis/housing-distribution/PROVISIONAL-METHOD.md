@@ -11,9 +11,11 @@ Status: PROVISIONAL, bridge tested September 2026.
 
 ## Source rule
 - Use legacy national AHS for pre-ACS historical observations.
-- Use annual ACS 1-year PUMS as the canonical modern series.
-- The 2009 same-year AHS/ACS overlap is the transition bridge.
-- 2017 and 2021 overlaps are sensitivity checks, not calibration points, because AHS underwent a major 2015 redesign and later imputation updates.
+- Use annual ACS 1-year PUMS as the canonical modern series beginning with the 2008 endpoint.
+- The 2009 same-year AHS/ACS overlap is the transition bridge between the legacy AHS series and the modern ACS series.
+- Do not apply a numerical AHS-to-ACS correction factor; the 2017 and 2021 overlaps do not show a stable source offset.
+- Treat 2017 and 2021 overlaps as sensitivity checks, not calibration points, because AHS underwent a major 2015 redesign and later imputation updates.
+- For the narrow 90%-110% home-value belt, always show the 80%-120% belt alongside it because owner-reported property values are rounded/heaped and the narrow band is more sensitive to those mass points.
 
 ## Bridge findings
 The 2009 transition is close for the primary and broader belts:

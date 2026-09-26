@@ -75,9 +75,9 @@ jobs:
               header=pd.read_csv(z.open(csv),nrows=0)
               cols=set(c.upper() for c in header.columns)
               if year==2009:
-                  wanted=["STATUS","TENURE","VALUE","ZRENT","RENT","WGT90GEO"]
+                                  wanted=["STATUS","TENURE","VALUE","RENT","WGT90GEO","AMTE","AMTG","AMTO","AMTF","AMTW"]
               else:
-                  wanted=["INTSTATUS","TENURE","MARKETVAL","RENT","UTILAMT","WEIGHT"]
+                                  wanted=["INTSTATUS","TENURE","MARKETVAL","RENT","WEIGHT","ELECAMT","GASAMT","OILAMT","OTHERAMT","WATERAMT"]
               missing=[c for c in wanted if c not in cols]
               if missing:
                   raise RuntimeError(f"AHS {year} missing {missing}; candidate columns {[c for c in cols if any(k in c for k in ['RENT','VALUE','MARKET','WEIGHT','WGT','TENURE','STATUS','UTIL'])][:80]}")
@@ -90,20 +90,27 @@ jobs:
                   d=d[d.STATUS==1].copy()
                   w=d.WGT90GEO
                   owner=d[(d.TENURE==1)&d.VALUE.notna()&(d.VALUE>0)&(w>0)].copy()
-                  renter=d[(d.TENURE==2)&d.ZRENT.notna()&(d.ZRENT>0)&(w>0)].copy()
                   cash=d[(d.TENURE==2)&d.RENT.notna()&(d.RENT>0)&(w>0)].copy()
+                  # Reconstruct ACS-comparable gross rent. Utility variables are N/A when not separately paid;
+                  # treat those components as zero. Exclude trash/garbage because ACS gross rent excludes it.
+                  for col in ["AMTE","AMTG","AMTO","AMTF","AMTW"]:
+                      cash[col]=cash[col].where(cash[col]>=0,0).fillna(0)
+                  cash["GROSS_PROXY"]=cash.RENT + cash.AMTE + cash.AMTG + cash.AMTO/12.0 + cash.AMTF/12.0 + cash.AMTW/12.0
+                  renter=cash[cash.GROSS_PROXY>0].copy()
                   return {
                     "home_value":(owner.VALUE,owner.WGT90GEO),
-                    "gross_rent":(renter.ZRENT,renter.WGT90GEO),
+                    "gross_rent":(renter.GROSS_PROXY,renter.WGT90GEO),
                     "contract_rent":(cash.RENT,cash.WGT90GEO)
                   }
               else:
                   print("AHS",year,"INTSTATUS",d.INTSTATUS.value_counts(dropna=False).head(10).to_dict())
                   d=d[d.INTSTATUS==1].copy()
                   owner=d[(d.TENURE==1)&d.MARKETVAL.notna()&(d.MARKETVAL>0)&(d.WEIGHT>0)].copy()
-                  renter=d[(d.TENURE==2)&d.RENT.notna()&(d.RENT>0)&d.UTILAMT.notna()&(d.UTILAMT>=0)&(d.WEIGHT>0)].copy()
-                  renter["GROSS_PROXY"]=renter.RENT+renter.UTILAMT
                   cash=d[(d.TENURE==2)&d.RENT.notna()&(d.RENT>0)&(d.WEIGHT>0)].copy()
+                  for col in ["ELECAMT","GASAMT","OILAMT","OTHERAMT","WATERAMT"]:
+                      cash[col]=cash[col].where(cash[col]>=0,0).fillna(0)
+                  cash["GROSS_PROXY"]=cash.RENT + cash.ELECAMT + cash.GASAMT + cash.OILAMT + cash.OTHERAMT + cash.WATERAMT
+                  renter=cash[cash.GROSS_PROXY>0].copy()
                   return {
                     "home_value":(owner.MARKETVAL,owner.WEIGHT),
                     "gross_rent":(renter.GROSS_PROXY,renter.WEIGHT),

@@ -1,0 +1,72 @@
+name: Refine pre-2004 CE burden universe
+
+on:
+  push:
+    branches: [analysis/healthcare-distribution]
+  workflow_dispatch:
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: python -m pip install --quiet pandas numpy requests
+      - name: Inspect and calculate complete-income-reporter burden
+        shell: bash
+        run: |
+          cat > /tmp/refine.py <<'PY'
+          import io,zipfile,requests,re,os,numpy as np,pandas as pd
+          urls={1980:"https://www.bls.gov/cex/pumd/data/comma/intrvw80.zip",2000:"https://www.bls.gov/cex/pumd/data/comma/intrvw00.zip"}
+          s=requests.Session(); s.headers.update({"User-Agent":"AEB-healthcare-refine/1.0"})
+          def wm(x,w):
+              x=np.asarray(x,float);w=np.asarray(w,float);m=np.isfinite(x)&np.isfinite(w)&(w>0);x=x[m];w=w[m];o=np.argsort(x);x=x[o];w=w[o];return float(x[np.searchsorted(np.cumsum(w),w.sum()/2)])
+          def sh(x,w,med,lo,hi):
+              x=np.asarray(x,float);w=np.asarray(w,float);m=np.isfinite(x)&np.isfinite(w)&(w>0);x=x[m];w=w[m];d=w.sum()
+              return [100*w[x<lo*med].sum()/d,100*w[(x>=lo*med)&(x<=hi*med)].sum()/d,100*w[x>hi*med].sum()/d]
+          for year,url in urls.items():
+              z=zipfile.ZipFile(io.BytesIO(s.get(url,timeout=300).content))
+              fs=[]
+              for n in z.namelist():
+                  if not re.search("fmli",os.path.basename(n),re.I) or not n.lower().endswith(".csv"):continue
+                  h=pd.read_csv(z.open(n),nrows=0)
+                  cmap={str(c).upper():c for c in h.columns}
+                  base=["NEWID","QINTRVMO","QINTRVYR","FINLWT21","HEALTHPQ","HEALTHCQ","FINCBTAX"]
+                  if not all(k in cmap for k in base): continue
+                  opt=[k for k in ["RESPSTAT","INCLASS"] if k in cmap]
+                  d=pd.read_csv(z.open(n),usecols=[cmap[k] for k in base+opt],low_memory=False)
+                  d.columns=[str(c).upper() for c in d.columns]
+                  for k in ["RESPSTAT","INCLASS"]:
+                      if k not in d:d[k]=np.nan
+                  fs.append(d)
+              d=pd.concat(fs,ignore_index=True).drop_duplicates("NEWID")
+              for c in ["NEWID","QINTRVMO","QINTRVYR","FINLWT21","HEALTHPQ","HEALTHCQ","FINCBTAX","RESPSTAT","INCLASS"]:
+                  d[c]=pd.to_numeric(d[c],errors="coerce")
+              y=d.QINTRVYR.copy()
+              y=np.where(y<100,np.where(y>=70,y+1900,y+2000),y)
+              d["IYEAR"]=y
+              m=d.QINTRVMO;iy=d.IYEAR
+              d=d[((iy==year)&m.between(1,12))|((iy==year+1)&m.between(1,3))].copy();m=d.QINTRVMO;iy=d.IYEAR
+              d["MS"]=np.select([(iy==year)&m.between(1,3),(iy==year)&m.between(4,12),(iy==year+1)&m.between(1,3)],[m-1,3,4-m],default=0)
+              d["HS"]=np.select([(iy==year)&m.between(1,3),(iy==year)&m.between(4,12),(iy==year+1)&m.between(1,3)],[d.HEALTHCQ,d.HEALTHPQ+d.HEALTHCQ,d.HEALTHPQ],default=np.nan)
+              d=d[(d.MS>0)&(d.FINLWT21>0)&d.HS.notna()].copy()
+              d["W"]=d.FINLWT21*d.MS/12
+              d["HANN"]=d.HS*12/d.MS
+              print("\nYEAR",year,"RESPSTAT",d.RESPSTAT.value_counts(dropna=False).head(10).to_dict(),"INCLASS",d.INCLASS.value_counts(dropna=False).head(15).to_dict())
+              if d.RESPSTAT.notna().any():
+                  comp=d.RESPSTAT==1
+                  rule="RESPSTAT=1"
+              elif d.INCLASS.notna().any():
+                  comp=d.INCLASS.between(1,9)
+                  rule="INCLASS 1-9"
+              else:
+                  raise RuntimeError("No complete reporter indicator")
+              b=d[comp&(d.FINCBTAX>0)&(d.HANN>=0)].copy()
+              b["BURDEN"]=b.HANN/b.FINCBTAX
+              med=wm(b.BURDEN,b.W)
+              print("RULE",rule,"share_complete_weighted",100*d.loc[comp,"W"].sum()/d.W.sum(),"n",len(b),"median_burden_pct",med*100)
+              for name,lo,hi in [("90-110",.9,1.1),("80-120",.8,1.2),("2/3-2x",2/3,2)]:
+                  print(name,sh(b.BURDEN,b.W,med,lo,hi))
+              print("over10",100*np.average(b.BURDEN>.10,weights=b.W),"over20",100*np.average(b.BURDEN>.20,weights=b.W))
+          PY
+          python /tmp/refine.py

@@ -65,18 +65,21 @@ jobs:
                   # Header first because imputed income is unavailable in early years.
                   h=pd.read_csv(z.open(n),nrows=0)
                   cols={str(c).upper():c for c in h.columns}
-                  required=["NEWID","QINTRVMO","QINTRVYR","FINLWT21","HEALTHPQ","HEALTHCQ","HLTHINPQ","HLTHINCQ"]
-                  if not all(c in cols for c in required): continue
+                  required=["NEWID","QINTRVMO","QINTRVYR","FINLWT21","HEALTHPQ","HEALTHCQ"]
+                  if not all(k in cols for k in required): continue
                   inc="FINCBTXM" if "FINCBTXM" in cols else "FINCBTAX"
-                  use=required+[inc]
-                  d=pd.read_csv(z.open(n),usecols=[cols[c] for c in use],low_memory=False)
-                  d.columns=[str(c).upper() for c in d.columns]
+                  optional=[k for k in ["HLTHINPQ","HLTHINCQ"] if k in cols]
+                  use=required+optional+[inc]
+                  d=pd.read_csv(z.open(n),usecols=[cols[k] for k in use],low_memory=False)
+                  d.columns=[str(x).upper() for x in d.columns]
                   d["INCOME_VAR"]=pd.to_numeric(d[inc],errors="coerce")
-                  frames.append(d[required+["INCOME_VAR"]])
+                  if "HLTHINPQ" not in d: d["HLTHINPQ"]=np.nan
+                  if "HLTHINCQ" not in d: d["HLTHINCQ"]=np.nan
+                  frames.append(d[required+["HLTHINPQ","HLTHINCQ","INCOME_VAR"]])
               if not frames: raise RuntimeError(f"No FMLI frames in {y}")
               out=pd.concat(frames,ignore_index=True)
-              for c in ["NEWID","QINTRVMO","FINLWT21","HEALTHPQ","HEALTHCQ","HLTHINPQ","HLTHINCQ","INCOME_VAR"]:
-                  out[c]=pd.to_numeric(out[c],errors="coerce")
+              for col in ["NEWID","QINTRVMO","FINLWT21","HEALTHPQ","HEALTHCQ","HLTHINPQ","HLTHINCQ","INCOME_VAR"]:
+                  out[col]=pd.to_numeric(out[col],errors="coerce")
               out["IYEAR"]=norm_year(out["QINTRVYR"])
               cache[y]=out
               return out
@@ -104,11 +107,14 @@ jobs:
                   (iy==year+1)&m.between(1,3)
               ], [d.HEALTHCQ,d.HEALTHPQ+d.HEALTHCQ,d.HEALTHPQ], default=np.nan)
 
-              d["INS_SCOPE"]=np.select([
-                  (iy==year)&m.between(1,3),
-                  (iy==year)&m.between(4,12),
-                  (iy==year+1)&m.between(1,3)
-              ], [d.HLTHINCQ,d.HLTHINPQ+d.HLTHINCQ,d.HLTHINPQ], default=np.nan)
+              if d.HLTHINPQ.notna().any() or d.HLTHINCQ.notna().any():
+                  d["INS_SCOPE"]=np.select([
+                      (iy==year)&m.between(1,3),
+                      (iy==year)&m.between(4,12),
+                      (iy==year+1)&m.between(1,3)
+                  ], [d.HLTHINCQ,d.HLTHINPQ+d.HLTHINCQ,d.HLTHINPQ], default=np.nan)
+              else:
+                  d["INS_SCOPE"]=np.nan
 
               d=d[(d.MO_SCOPE>0)&d.FINLWT21.notna()&(d.FINLWT21>0)&d.HEALTH_SCOPE.notna()].copy()
               # BLS calendar-year population exposure weight.
@@ -146,7 +152,8 @@ jobs:
                                   100*np.average(bur.BURDEN>0.10,weights=bur.POPWT),
                                   100*np.average(bur.BURDEN>0.20,weights=bur.POPWT)])
 
-              med_ins=wmedian(d[d.INS_ANNUALIZED>=0].INS_ANNUALIZED,d[d.INS_ANNUALIZED>=0].POPWT)
+              ins=d[d.INS_ANNUALIZED.notna()&(d.INS_ANNUALIZED>=0)]
+              med_ins=wmedian(ins.INS_ANNUALIZED,ins.POPWT) if len(ins) else np.nan
               diag.append([
                   year,len(d),d.POPWT.sum(),med_sp,mean_sp,mean_official_logic,med_b*100,med_ins,
                   100*np.average(zero,weights=d.POPWT),

@@ -1,0 +1,7 @@
+year,direct_median_dollars,direct_90_110_pct,direct_80_120_pct,direct_2_3_2x_pct,burden_median_pct,burden_90_110_pct,burden_80_120_pct,burden_2_3_2x_pct,over_10pct_income,over_20pct_income,burden_income_universe
+1980,376.0,5.0505,9.9201,28.5284,2.4020,5.0209,10.0397,27.7564,15.6286,6.7948,complete income reporters
+2000,1056.0,5.1764,9.8211,27.7379,2.9189,4.6843,9.2897,25.6412,20.8242,9.9382,complete income reporters
+2008,1576.8,4.7554,9.2993,29.9703,2.8800,4.5360,9.0654,25.1736,20.8861,8.8291,all CUs with multiply imputed income
+2016,2745.6,6.0285,11.0507,31.5086,4.4878,5.0189,10.2733,28.5308,27.9043,12.4741,all CUs with multiply imputed income
+2020,3456.0,7.2095,13.0201,36.6393,5.0603,5.4405,10.9365,30.1736,30.2615,12.7771,all CUs with multiply imputed income
+2024,4032.0,6.9913,13.4185,36.0946,4.9091,5.6961,11.6998,32.1653,28.1925,10.6637,all CUs with multiply imputed income

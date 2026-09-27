@@ -1,0 +1,55 @@
+name: Inspect CE healthcare feasibility
+
+on:
+  push:
+    branches: [analysis/healthcare-distribution]
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: python -m pip install --quiet pandas requests
+      - name: Inspect CE Interview FMLI files
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          import io,zipfile,requests,pandas as pd,re,os
+          urls={
+            1980:"https://www.bls.gov/cex/pumd/data/comma/intrvw80.zip",
+            2000:"https://www.bls.gov/cex/pumd/data/comma/intrvw00.zip",
+            2008:"https://www.bls.gov/cex/pumd/data/comma/intrvw08.zip",
+            2016:"https://www.bls.gov/cex/pumd/data/comma/intrvw16.zip",
+            2020:"https://www.bls.gov/cex/pumd/data/comma/intrvw20.zip",
+            2024:"https://www.bls.gov/cex/pumd/data/csv/intrvw24.zip",
+          }
+          s=requests.Session(); s.headers.update({"User-Agent":"AEB-healthcare-feasibility/1.0"})
+          for year,url in urls.items():
+              print("\n==========",year,url,"==========")
+              r=s.get(url,timeout=300); r.raise_for_status()
+              z=zipfile.ZipFile(io.BytesIO(r.content))
+              files=z.namelist()
+              print("NFILES",len(files))
+              print("FMLI CANDIDATES",[n for n in files if re.search(r'fmli',os.path.basename(n),re.I)][:20])
+              for n in files:
+                  if not re.search(r'fmli',os.path.basename(n),re.I): continue
+                  if not n.lower().endswith((".csv",".txt")): continue
+                  try:
+                      d=pd.read_csv(z.open(n),nrows=3,low_memory=False,encoding_errors="ignore")
+                  except Exception as e:
+                      print("READFAIL",n,e); continue
+                  cols=[str(c).upper() for c in d.columns]
+                  hits=[c for c in cols if any(k in c for k in [
+                      "HEALTH","HLTH","INSUR","MED","DRUG","SUPPL",
+                      "FINCBT","INCBT","FINCAT","INCAT","FINLWT","WEIGHT","NEWID","QINTRV"
+                  ])]
+                  print("\nFILE",n,"NCOLS",len(cols))
+                  print("HITS",hits)
+                  for c in d.columns:
+                      cu=str(c).upper()
+                      if cu in hits:
+                          print(cu, d[c].tolist())
+          PY

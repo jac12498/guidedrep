@@ -1,4 +1,4 @@
-name: Inspect CE healthcare feasibility
+name: Calculate CE healthcare feasibility belts
 
 on:
   push:
@@ -6,50 +6,175 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect:
+  calculate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: python -m pip install --quiet pandas requests
-      - name: Inspect CE Interview FMLI files
+        run: python -m pip install --quiet pandas numpy requests
+      - name: Calculate calendar-year exposure distributions
         shell: bash
         run: |
-          set -euxo pipefail
-          python - <<'PY'
-          import io,zipfile,requests,pandas as pd,re,os
-          urls={
+          cat > /tmp/health_belts.py <<'PY'
+          import io, zipfile, requests, re, os
+          import numpy as np, pandas as pd
+
+          YEARS=[1980,2000,2008,2016,2020,2024]
+          URLS={
             1980:"https://www.bls.gov/cex/pumd/data/comma/intrvw80.zip",
             2000:"https://www.bls.gov/cex/pumd/data/comma/intrvw00.zip",
             2008:"https://www.bls.gov/cex/pumd/data/comma/intrvw08.zip",
             2016:"https://www.bls.gov/cex/pumd/data/comma/intrvw16.zip",
+            2019:"https://www.bls.gov/cex/pumd/data/comma/intrvw19.zip",
             2020:"https://www.bls.gov/cex/pumd/data/comma/intrvw20.zip",
             2024:"https://www.bls.gov/cex/pumd/data/csv/intrvw24.zip",
           }
           s=requests.Session(); s.headers.update({"User-Agent":"AEB-healthcare-feasibility/1.0"})
-          for year,url in urls.items():
-              print("\n==========",year,url,"==========")
-              r=s.get(url,timeout=300); r.raise_for_status()
-              z=zipfile.ZipFile(io.BytesIO(r.content))
-              files=z.namelist()
-              print("NFILES",len(files))
-              print("FMLI CANDIDATES",[n for n in files if re.search(r'fmli',os.path.basename(n),re.I)][:20])
-              for n in files:
+
+          def get(url):
+              r=s.get(url,timeout=300); r.raise_for_status(); return r.content
+
+          def norm_year(v):
+              y=pd.to_numeric(v,errors="coerce")
+              y=np.where(y<100, np.where(y>=70,y+1900,y+2000), y)
+              return y
+
+          def wmedian(x,w):
+              x=np.asarray(x,float); w=np.asarray(w,float)
+              m=np.isfinite(x)&np.isfinite(w)&(w>0)
+              x=x[m]; w=w[m]
+              o=np.argsort(x,kind="mergesort"); x=x[o]; w=w[o]
+              return float(x[np.searchsorted(np.cumsum(w),w.sum()/2,side="left")])
+
+          def shares(x,w,med,lo,hi):
+              x=np.asarray(x,float); w=np.asarray(w,float)
+              m=np.isfinite(x)&np.isfinite(w)&(w>0)
+              x=x[m]; w=w[m]; den=w.sum()
+              return (100*w[x<lo*med].sum()/den,
+                      100*w[(x>=lo*med)&(x<=hi*med)].sum()/den,
+                      100*w[x>hi*med].sum()/den)
+
+          cache={}
+          def load_zip(y):
+              if y in cache: return cache[y]
+              z=zipfile.ZipFile(io.BytesIO(get(URLS[y])))
+              frames=[]
+              for n in z.namelist():
                   if not re.search(r'fmli',os.path.basename(n),re.I): continue
-                  if not n.lower().endswith((".csv",".txt")): continue
-                  try:
-                      d=pd.read_csv(z.open(n),nrows=3,low_memory=False,encoding_errors="ignore")
-                  except Exception as e:
-                      print("READFAIL",n,e); continue
-                  cols=[str(c).upper() for c in d.columns]
-                  hits=[c for c in cols if any(k in c for k in [
-                      "HEALTH","HLTH","INSUR","MED","DRUG","SUPPL",
-                      "FINCBT","INCBT","FINCAT","INCAT","FINLWT","WEIGHT","NEWID","QINTRV"
-                  ])]
-                  print("\nFILE",n,"NCOLS",len(cols))
-                  print("HITS",hits)
-                  for c in d.columns:
-                      cu=str(c).upper()
-                      if cu in hits:
-                          print(cu, d[c].tolist())
+                  if not n.lower().endswith(".csv"): continue
+                  # Header first because imputed income is unavailable in early years.
+                  h=pd.read_csv(z.open(n),nrows=0)
+                  cols={str(c).upper():c for c in h.columns}
+                  required=["NEWID","QINTRVMO","QINTRVYR","FINLWT21","HEALTHPQ","HEALTHCQ","HLTHINPQ","HLTHINCQ"]
+                  if not all(c in cols for c in required): continue
+                  inc="FINCBTXM" if "FINCBTXM" in cols else "FINCBTAX"
+                  use=required+[inc]
+                  d=pd.read_csv(z.open(n),usecols=[cols[c] for c in use],low_memory=False)
+                  d.columns=[str(c).upper() for c in d.columns]
+                  d["INCOME_VAR"]=pd.to_numeric(d[inc],errors="coerce")
+                  frames.append(d[required+["INCOME_VAR"]])
+              if not frames: raise RuntimeError(f"No FMLI frames in {y}")
+              out=pd.concat(frames,ignore_index=True)
+              for c in ["NEWID","QINTRVMO","FINLWT21","HEALTHPQ","HEALTHCQ","HLTHINPQ","HLTHINCQ","INCOME_VAR"]:
+                  out[c]=pd.to_numeric(out[c],errors="coerce")
+              out["IYEAR"]=norm_year(out["QINTRVYR"])
+              cache[y]=out
+              return out
+
+          def target_records(year):
+              parts=[load_zip(year)]
+              # Beginning 2020, target Q1 lives in prior release.
+              if year==2020: parts.append(load_zip(2019))
+              d=pd.concat(parts,ignore_index=True).drop_duplicates("NEWID")
+              m=d.QINTRVMO
+              iy=d.IYEAR
+              # Target-year interview months Jan-Dec + next-year Jan-Mar.
+              d=d[((iy==year)&m.between(1,12)) | ((iy==year+1)&m.between(1,3))].copy()
+              m=d.QINTRVMO; iy=d.IYEAR
+
+              d["MO_SCOPE"]=np.select([
+                  (iy==year)&m.between(1,3),
+                  (iy==year)&m.between(4,12),
+                  (iy==year+1)&m.between(1,3)
+              ], [m-1,3,4-m], default=0)
+
+              d["HEALTH_SCOPE"]=np.select([
+                  (iy==year)&m.between(1,3),
+                  (iy==year)&m.between(4,12),
+                  (iy==year+1)&m.between(1,3)
+              ], [d.HEALTHCQ,d.HEALTHPQ+d.HEALTHCQ,d.HEALTHPQ], default=np.nan)
+
+              d["INS_SCOPE"]=np.select([
+                  (iy==year)&m.between(1,3),
+                  (iy==year)&m.between(4,12),
+                  (iy==year+1)&m.between(1,3)
+              ], [d.HLTHINCQ,d.HLTHINPQ+d.HLTHINCQ,d.HLTHINPQ], default=np.nan)
+
+              d=d[(d.MO_SCOPE>0)&d.FINLWT21.notna()&(d.FINLWT21>0)&d.HEALTH_SCOPE.notna()].copy()
+              # BLS calendar-year population exposure weight.
+              d["POPWT"]=d.FINLWT21*(d.MO_SCOPE/3.0)/4.0
+              # Annualized rate based only on months in the target calendar year represented by this interview.
+              d["HEALTH_ANNUALIZED"]=d.HEALTH_SCOPE*12.0/d.MO_SCOPE
+              d["INS_ANNUALIZED"]=d.INS_SCOPE*12.0/d.MO_SCOPE
+              return d
+
+          BELTS=[("near_90_110",.90,1.10),("broader_80_120",.80,1.20),("wide_2_3_2x",2/3,2.0)]
+          results=[]; diag=[]
+          for year in YEARS:
+              d=target_records(year)
+              # Keep net expenditure values as released, but flag negatives. For belts use nonnegative healthcare only.
+              neg=(d.HEALTH_ANNUALIZED<0)
+              zero=(d.HEALTH_ANNUALIZED==0)
+              spend=d[d.HEALTH_ANNUALIZED>=0].copy()
+              med_sp=wmedian(spend.HEALTH_ANNUALIZED,spend.POPWT)
+              mean_sp=np.average(spend.HEALTH_ANNUALIZED,weights=spend.POPWT)
+
+              # Mean computed from scoped amounts should equal official calendar-year FMLI mean logic.
+              mean_official_logic=(d.HEALTH_SCOPE*d.FINLWT21).sum()/d.POPWT.sum()
+
+              for belt,lo,hi in BELTS:
+                  b,i,a=shares(spend.HEALTH_ANNUALIZED,spend.POPWT,med_sp,lo,hi)
+                  results.append([year,"direct_spending",belt,med_sp,b,i,a,np.nan,np.nan])
+
+              # Burden universe: nonnegative healthcare, strictly positive before-tax income.
+              bur=d[(d.HEALTH_ANNUALIZED>=0)&d.INCOME_VAR.notna()&(d.INCOME_VAR>0)].copy()
+              bur["BURDEN"]=bur.HEALTH_ANNUALIZED/bur.INCOME_VAR
+              med_b=wmedian(bur.BURDEN,bur.POPWT)
+              for belt,lo,hi in BELTS:
+                  b,i,a=shares(bur.BURDEN,bur.POPWT,med_b,lo,hi)
+                  results.append([year,"income_burden",belt,med_b,b,i,a,
+                                  100*np.average(bur.BURDEN>0.10,weights=bur.POPWT),
+                                  100*np.average(bur.BURDEN>0.20,weights=bur.POPWT)])
+
+              med_ins=wmedian(d[d.INS_ANNUALIZED>=0].INS_ANNUALIZED,d[d.INS_ANNUALIZED>=0].POPWT)
+              diag.append([
+                  year,len(d),d.POPWT.sum(),med_sp,mean_sp,mean_official_logic,med_b*100,med_ins,
+                  100*np.average(zero,weights=d.POPWT),
+                  100*np.average(neg,weights=d.POPWT),
+                  100*d.loc[d.INCOME_VAR<=0,"POPWT"].sum()/d.POPWT.sum()
+              ])
+              print(f"YEAR {year}: n={len(d):,} median_sp={med_sp:.2f} mean_sp={mean_sp:.2f} mean_check={mean_official_logic:.2f} median_burden={med_b*100:.3f}% median_ins={med_ins:.2f}")
+              print(f"  zero health={diag[-1][8]:.2f}% negative health={diag[-1][9]:.3f}% nonpositive income={diag[-1][10]:.2f}%")
+
+          out=pd.DataFrame(results,columns=[
+              "year","measure","belt","median","below_pct","inside_pct","above_pct","over10_pct","over20_pct"])
+          diagnostics=pd.DataFrame(diag,columns=[
+              "year","record_n","population_weight","median_annualized_health","mean_annualized_health",
+              "mean_bls_calendar_logic","median_burden_pct","median_annualized_insurance",
+              "zero_health_pct","negative_health_pct","nonpositive_income_pct"])
+          print("\n===== FEASIBILITY BELTS =====")
+          print(out.to_csv(index=False,float_format="%.4f"))
+          print("===== DIAGNOSTICS =====")
+          print(diagnostics.to_csv(index=False,float_format="%.4f"))
+          out.to_csv("healthcare_feasibility_belts.csv",index=False,float_format="%.6f")
+          diagnostics.to_csv("healthcare_feasibility_diagnostics.csv",index=False,float_format="%.6f")
+          assert np.allclose(out.below_pct+out.inside_pct+out.above_pct,100,atol=.03)
           PY
+          python /tmp/health_belts.py
+      - name: Upload feasibility results
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthcare-feasibility-results
+          path: |
+            healthcare_feasibility_belts.csv
+            healthcare_feasibility_diagnostics.csv

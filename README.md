@@ -5,6 +5,13 @@ daily workout with voice cues and timers, and can draft routines for you with AI
 Ships as a marketing site at `/` with the app itself under `/app` (installable PWA),
 brand **Guided Reps** (`guidedreps.com`).
 
+## Who it's for
+
+Adults who want a simple, guided daily workout without watching a screen — beginners,
+people returning to exercise, and older adults who want gentle, safety-aware strength,
+balance, and bone-health routines. Everything is built to be used phone-in-pocket, with
+the coach doing the counting and timing.
+
 ## Features
 
 - **Personalized 12-week program (Pro)** — a structured, progressive full-body plan
@@ -187,4 +194,22 @@ features (stats/export, custom builder) are gated by `isProUser()` in `src/lib/s
 ```bash
 npm run build && npm start
 ```
-# guidedrep
+
+## Roadmap / TODO
+
+- [ ] Automated tests for the session engine (`src/lib/useSession.ts`) and program scaffold
+- [ ] More built-in routines and exercise instructions
+- [ ] Offline-first sync for cloud accounts (conflict handling between devices)
+- [ ] Richer progress stats and export for Pro users
+- [ ] Accessibility pass (screen-reader labels, reduced-motion support)
+- [ ] Oura ring integration (sync readiness, sleep, and activity data to tailor daily workouts)
+- [ ] Localization of spoken coaching cues
+
+## Sample data
+
+This repo contains no real user data. Emails like `you@example.com` and all keys in
+`.env.local.example` are placeholders; copy it to `.env.local` and add your own (never commit it).
+
+## License
+
+[MIT](./LICENSE) © Jeff Collins

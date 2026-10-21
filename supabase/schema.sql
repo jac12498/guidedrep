@@ -169,4 +169,4 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- ---- make yourself an admin (run after your first sign-in) ----
--- update public.profiles set is_admin = true where email = 'jeffery.a.collins@gmail.com';
+-- update public.profiles set is_admin = true where email = 'you@example.com';
